@@ -1,0 +1,42 @@
+# CI quality gate. Every job runs fully offline after dependency install:
+# tests must never touch the network (determinism is a project invariant;
+# enforced at socket level by a guard fixture in tests/conftest.py).
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          # Keep in lockstep with the uv version that wrote uv.lock; an older
+          # uv may not read a newer lockfile revision.
+          version: "0.8.17"
+          enable-cache: true
+
+      - name: Install Python + deps (locked)
+        run: uv sync --frozen
+
+      - name: ruff lint
+        run: uv run ruff check .
+
+      - name: ruff format check
+        run: uv run ruff format --check .
+
+      - name: mypy --strict
+        run: uv run mypy
+
+      - name: pytest (coverage gate ≥90%)
+        run: uv run pytest
