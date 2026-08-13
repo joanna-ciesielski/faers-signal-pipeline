@@ -6,7 +6,7 @@ backfill), landing in PostgreSQL 16 + pgvector, computing PRR/ROR
 disproportionality statistics behind a CI quality gate — later published as a
 free, read-only web explorer.
 
-> **Status: Phase 1 (ETL core: parse → validate → stage).** Nothing here is
+> **Status: Phase 2 (case versioning & deduplication).** Nothing here is
 > a finished analysis. See `docs/plans/build-plan.md` for the phased plan.
 
 ## What this is — and is not
@@ -84,6 +84,13 @@ deleted-cases list.
   into Postgres (one transaction per quarter+table; idempotent re-runs load
   zero duplicates — CI-gated), quarantine and runs lineage tables,
   per-quarter DQ report artifact.
+- `dedup/` + `db/cases.py` + `scripts/merge_cases.py` — the case
+  deduplication centerpiece: a pure resolution module (latest version per
+  case wins; quarterly deleted-cases lists honored; late-arriving older
+  versions ignored; full history in `case_versions`), rebuilt from the
+  staged union so **quarter load order cannot change the outcome** —
+  CI-gated end-to-end and by a 200-case permutation property test. Policy,
+  FDA basis, and residual duplicate risk: `docs/dedup-policy.md`.
 - `docs/adr/` — architecture decision records, including the licensing and
   no-ads decisions.
 
