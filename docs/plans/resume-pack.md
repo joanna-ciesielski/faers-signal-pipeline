@@ -5,8 +5,95 @@
 > authoritative (unsanitized) plan is the maintainer's private Drive doc
 > "Build Plan B v3 — FAERS Signal Pipeline + Live Explorer Service (FINAL)".
 
-- Updated: 2026-08-12
-- Current phase: **0 — Scaffold & data acquisition** (in review, not merged)
+- Updated: 2026-08-13
+- Current phase: **1 — ETL core (implemented, in review; not committed)**.
+  Phase 0 merged to main as bc8e449 via PR #2. Phase 1 changeset built and
+  gate-verified in the build sandbox; delivery to maintainer for review,
+  commit on branch `phase-1-etl-core`, PR, then DoD confirmation.
+
+## Phase 1 state (2026-08-13)
+
+- Gate green in sandbox after a second senior-review pass: **111 passed,
+  2 skipped (real-sample tests await a committed sample), coverage 96.6%**
+  (ingest/ and contracts/ at 96–100%), mypy --strict and ruff clean. DB
+  tests ran against Postgres 16.
+- Senior-review fixes (2026-08-13): make_ci_sample.py wrote sample members
+  as UTF-8 (writestr default) breaking byte-fidelity for real latin-1 data
+  — now encodes latin-1 (regression-tested with 8-bit bytes round-trip);
+  its line stripper removed ALL trailing CRs instead of exactly one
+  terminator (regression-tested with a field ending in CR); tests/conftest
+  database_url() now URL-encodes .env credentials (special characters in
+  passwords no longer break the derived DSN). Reviewed and confirmed
+  correct: COPY escaping via psycopg protocol, transaction rollback scopes,
+  re-run quarantine cleanup per member, empty-frame paths, deleted-list
+  dedupe against its PK, multi-statement schema execute.
+- Known minor gap (accepted, documented): contract-level quarantine rows
+  carry full raw payload but no source line number (line numbers exist only
+  for reader-level quarantine); revisit if forensics ever need it.
+- Implemented: `ingest/reader.py` (streaming $-parser; quirks as named
+  tests: field-count mismatch, embedded LF/CR, latin-1, blank lines, empty→
+  null; hypothesis property suite: every line parses/quarantines/counts —
+  never vanishes); `ingest/deleted.py` (verified real format); `contracts/`
+  (vocab.py cited to ASC_NTS, frames.py reason-routing checks incl. partial
+  dates and join orphans, rows.py pydantic models, certify.py pandera gate);
+  `db/loader.py` (per-(quarter,table) transactions, COPY, delete-then-load
+  idempotency, row/file quarantine scopes); `pipeline.py` (verify → demo →
+  children → deleted list → DQ report + runs row; missing deleted list
+  requires explicit allow_missing_deleted override); `report.py`;
+  `scripts/load_quarter.py` (exit codes 0/1/2);
+  `scripts/make_ci_sample.py` (cuts committable real samples).
+- Verifier follow-up landed: `Deleted/DELETE{yy}Q{q}.txt` is an expected
+  member; absence = non-fatal info finding (manifest v2, findings carry
+  severity). Decision recorded: load-time override required when absent.
+- CI: pgvector/pg16 service container added; DATABASE_URL wired; tests use
+  an isolated `pytest_stage` schema so a developer's real staged data is
+  never touched; test DSN auto-derives from .env when DATABASE_URL unset.
+- Known limitation documented in tests: an embedded LF landing exactly after
+  a complete field set makes the first fragment parse as a valid row
+  (inherent to unquoted data); contract checks are the net for the tail.
+- Bugs fixed during build (named): polars is_between with bare strings
+  reads them as column names (wrapped in pl.lit); test fixture zips must
+  encode latin-1 (writestr defaults to UTF-8).
+
+## Next (maintainer)
+
+1. Review changeset; commit on `phase-1-etl-core`; push; PR; CI green.
+2. Run real loads locally: fetch 2026q1 (second dev quarter), then
+   `uv run python scripts/load_quarter.py 2026q2` and `2026q1`; inspect
+   DQ reports (vocab surprises on real data are expected — extend
+   contracts/vocab.py deliberately, citing ASC_NTS, if legit values appear).
+3. Run `uv run python scripts/make_ci_sample.py 2026q2` and commit the
+   generated `tests/fixtures/faers_real_sample_2026q2.zip` (public domain)
+   so the 2 skipped real-sample tests activate in CI.
+4. Phase 1 DoD check: dev quarters load or quarantine cleanly; zero
+   violations pass; coverage ≥90% on ingest/ + contracts/.
+
+## Live state (2026-08-13)
+
+- Repo: https://github.com/joanna-ciesielski/faers-signal-pipeline
+  (public, portfolio account). main = clean init commit; PR #2 =
+  phase-0-scaffold with the full scaffold; CI `ci/quality` green (14s).
+- Commit identity: 87953175+joanna-ciesielski@users.noreply.github.com
+  (repo-local config; machine's global git email is a client address —
+  never use it here).
+- **Real-quarter fetch verified on maintainer machine:** 2026q2,
+  sha256 90213500721ecaf976ee45d8ad04aa2dbb80861d93c87fef67ccaf515919bf2a,
+  63,223,614 bytes, layout ok. Confirmed real zip structure:
+  `ASCII/DEMO26Q2.txt` (+6 more tables), `ASCII/ASC_NTS.pdf`, `Readme.pdf`,
+  era faers_2014q3, all headers matched the spec.
+- **Deleted-cases list verified in the real zip (2026q2):**
+  `Deleted/DELETE26Q2.txt` (~38 KB), naming pattern
+  `Deleted/DELETE{yy}Q{q}.txt`. Format observed: first line
+  blank/whitespace, then one bare CASEID per line (8-digit, ascending),
+  no delimiter, no header. Phase 2 parser: skip blank lines, strip
+  whitespace, treat as headerless CASEID list.
+- Full zip inventory also confirmed: per-table layout PDFs beside each
+  `.txt` (e.g. `ASCII/DEMO26Q2.pdf`), plus `FAQs.pdf`. Uncompressed sizes
+  (2026q2): DRUG 151 MB, DEMO 59 MB, INDI 53 MB, REAC 53 MB, THER 12 MB,
+  OUTC 6.7 MB, RPSR 0.3 MB — ~338 MB/quarter.
+- Phase 1 follow-up recorded: teach the layout verifier about
+  `Deleted/DELETE{yy}Q{q}.txt` as an expected member (deliberate reviewed
+  change, now that real structure is known).
 
 ## State of the repo
 

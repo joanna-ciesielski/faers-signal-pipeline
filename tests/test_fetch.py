@@ -238,6 +238,23 @@ class TestVerifyLayout:
         report = verify_layout(path, quarter_2026q2)
         assert report.ok
 
+    def test_deleted_member_recorded(self, good_zip: Path, quarter_2026q2: Quarter) -> None:
+        report = verify_layout(good_zip, quarter_2026q2)
+        assert report.deleted_member == "Deleted/DELETE26Q2.txt"
+
+    def test_missing_deleted_list_is_nonfatal_info_finding(
+        self, tmp_path: Path, quarter_2026q2: Quarter
+    ) -> None:
+        # Older eras may predate the Deleted/ folder: absence is recorded but
+        # does not fail verification; the *load* step requires an explicit
+        # override (see pipeline tests).
+        path = build_quarter_zip(tmp_path / "nodeleted.zip", quarter_2026q2, include_deleted=False)
+        report = verify_layout(path, quarter_2026q2)
+        assert report.ok
+        assert report.deleted_member is None
+        [finding] = [f for f in report.findings if f.code is VerificationCode.DELETED_LIST_MISSING]
+        assert finding.severity == "info"
+
     def test_unreadable_zip_reported(self, tmp_path: Path, quarter_2026q2: Quarter) -> None:
         path = tmp_path / "bad.zip"
         path.write_bytes(b"this is not a zip")
