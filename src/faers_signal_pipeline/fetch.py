@@ -22,12 +22,12 @@ from pathlib import Path
 
 import httpx
 
-from faers_signal_pipeline.layout import DELIMITER, TableSpec, tables_for_era
+from faers_signal_pipeline.layout import TableSpec, normalize_header, tables_for_era
 from faers_signal_pipeline.quarter import Quarter
 
 DEFAULT_BASE_URL = "https://fis.fda.gov/content/Exports"
 _CHUNK_SIZE = 1 << 20  # 1 MiB
-MANIFEST_VERSION = 1
+MANIFEST_VERSION = 2
 
 
 class VerificationCode(enum.StrEnum):
@@ -41,6 +41,10 @@ class VerificationCode(enum.StrEnum):
     HEADER_UNREADABLE = "header_unreadable"
     README_MISSING = "readme_missing"
     ERA_UNSUPPORTED = "era_unsupported"
+    # Non-fatal (severity="info"): recorded, does not fail verification.
+    # Older eras may predate the Deleted/ folder; Phase 2 dedup requires an
+    # explicit override to treat an absent list as "no deletions".
+    DELETED_LIST_MISSING = "deleted_list_missing"
 
 
 @dataclass(frozen=True, slots=True)
@@ -50,11 +54,16 @@ class Finding:
     code: VerificationCode
     table: str | None = None
     detail: str = ""
+    severity: str = "error"
 
 
 @dataclass(frozen=True, slots=True)
 class VerificationReport:
-    """Outcome of layout verification for one downloaded quarter."""
+    """Outcome of layout verification for one downloaded quarter.
+
+    ``ok`` is true when no *error*-severity findings exist; info-severity
+    findings (e.g. an absent deleted-cases list) are recorded but non-fatal.
+    """
 
     quarter: str
     era: str
@@ -62,6 +71,7 @@ class VerificationReport:
     findings: tuple[Finding, ...]
     table_members: dict[str, str] = field(default_factory=dict)
     doc_members: tuple[str, ...] = ()
+    deleted_member: str | None = None
 
 
 class FetchError(RuntimeError):
@@ -76,16 +86,15 @@ def sha256_of(path: Path) -> str:
     return digest.hexdigest()
 
 
-def _normalize_header(raw_header: str, spec: TableSpec) -> tuple[str, ...]:
-    columns = [column.strip().lower() for column in raw_header.rstrip("\r\n").split(DELIMITER)]
-    return tuple(spec.aliases.get(column, column) for column in columns)
-
-
-def _locate_members(names: list[str], quarter: Quarter) -> tuple[dict[str, list[str]], list[str]]:
-    """Split archive members into candidate table files and doc files."""
+def _locate_members(
+    names: list[str], quarter: Quarter
+) -> tuple[dict[str, list[str]], list[str], str | None]:
+    """Split archive members into table files, doc files, and the deleted list."""
     suffix = quarter.table_file_stem_suffix.lower()
+    deleted_name = quarter.deleted_file_name.lower()
     tables: dict[str, list[str]] = {}
     docs: list[str] = []
+    deleted: str | None = None
     for name in names:
         stem = Path(name).name.lower()
         if not stem:
@@ -93,10 +102,13 @@ def _locate_members(names: list[str], quarter: Quarter) -> tuple[dict[str, list[
         if stem.startswith(("asc_nts", "readme")):
             docs.append(name)
             continue
+        if stem == deleted_name:
+            deleted = name
+            continue
         for table in ("demo", "drug", "reac", "outc", "rpsr", "ther", "indi"):
             if stem == f"{table}{suffix}.txt":
                 tables.setdefault(table, []).append(name)
-    return tables, docs
+    return tables, docs, deleted
 
 
 def verify_layout(zip_path: Path, quarter: Quarter) -> VerificationReport:
@@ -109,6 +121,7 @@ def verify_layout(zip_path: Path, quarter: Quarter) -> VerificationReport:
     findings: list[Finding] = []
     table_members: dict[str, str] = {}
     doc_members: tuple[str, ...] = ()
+    deleted_member: str | None = None
 
     try:
         specs = tables_for_era(quarter.era)
@@ -121,8 +134,16 @@ def verify_layout(zip_path: Path, quarter: Quarter) -> VerificationReport:
     try:
         with zipfile.ZipFile(zip_path) as archive:
             names = archive.namelist()
-            candidates, docs = _locate_members(names, quarter)
+            candidates, docs, deleted_member = _locate_members(names, quarter)
             doc_members = tuple(sorted(docs))
+            if deleted_member is None:
+                findings.append(
+                    Finding(
+                        code=VerificationCode.DELETED_LIST_MISSING,
+                        detail=f"no {quarter.deleted_file_name} member found in archive",
+                        severity="info",
+                    )
+                )
             if not docs:
                 findings.append(
                     Finding(
@@ -157,8 +178,8 @@ def verify_layout(zip_path: Path, quarter: Quarter) -> VerificationReport:
     except (OSError, zipfile.BadZipFile) as exc:
         findings.append(Finding(code=VerificationCode.ZIP_UNREADABLE, detail=str(exc)))
 
-    ok = not findings
-    if ok:
+    ok = not any(finding.severity == "error" for finding in findings)
+    if not findings:
         findings.append(Finding(code=VerificationCode.OK))
     return VerificationReport(
         quarter=quarter.label,
@@ -167,6 +188,7 @@ def verify_layout(zip_path: Path, quarter: Quarter) -> VerificationReport:
         findings=tuple(findings),
         table_members=table_members,
         doc_members=doc_members,
+        deleted_member=deleted_member,
     )
 
 
@@ -178,7 +200,7 @@ def _verify_header(
             raw = handle.readline(1 << 16).decode("latin-1")
     except (OSError, zipfile.BadZipFile) as exc:
         return [Finding(code=VerificationCode.HEADER_UNREADABLE, table=table, detail=str(exc))]
-    header = _normalize_header(raw, spec)
+    header = normalize_header(raw, spec)
     if header != spec.columns:
         return [
             Finding(
