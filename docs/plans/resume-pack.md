@@ -38,15 +38,55 @@
   builds 2x2 tables from current_cases joined to stg_drug/stg_reac via
   primaryid+quarter.
 
-## Phase 2 next (maintainer)
+## Phase 2 real-merge results (2026-08-13, maintainer machine, PR #4)
 
-1. Apply changeset on branch `phase-2-dedup`; gate; commit; PR; CI green.
-2. Run real merge: `uv run python scripts/merge_cases.py` after exporting
-   DATABASE_URL; paste stats into PR (expect ~800K unique cases from two
-   quarters, deletions applied from both lists).
-3. DoD: all scenarios green; order-independence gate green in CI; policy
-   doc reviewed. Merge = Phase 2 confirmation; Phase 3 (RxNav
-   normalization) planning next.
+- First real merge over 2026q1+2026q2: version_sightings 819,683 (exactly
+  the two quarters' demo rows), duplicate_sightings 0, superseded 26,682
+  (~3.3% — the revision rate across two adjacent quarters), unique cases
+  793,001, current 792,346, deleted 655, resurrected 0,
+  never_seen_deletions 9,697.
+- Accounting identities verified on real data: 0+26,682+793,001=819,683
+  and 792,346+655=793,001.
+- never_seen_deletions is large BY DESIGN at two-quarter scope: deletion
+  lists reference the full FAERS history, and we have only two quarters
+  staged. Expect this number to shrink toward zero at full-history
+  backfill — a useful health indicator to watch then.
+
+## Phase 2: MERGED as 99bbab9 (PR #4) — DoD confirmed 2026-08-13.
+
+## Phase 3 state (2026-08-13, sandbox-complete, delivered for review)
+
+- Gate green in sandbox: **167 passed, 2 skipped, coverage 95.9%**, mypy
+  --strict + ruff clean. Tests written first.
+- Implemented: `normalize/clean.py` (pure pre-clean; cited salt/hydrate
+  suffix list; idempotence property-tested), `normalize/rxnav.py` (open
+  RxNav API only per ADR 0004; search=2 normalized lookup; retry/backoff;
+  throttle default 4 req/s, injectable transport+sleep),
+  `normalize/mapper.py` (drug_map cache table; matched AND no_match both
+  cached; batch commits -> interruptible/resumable; limit-skipped names
+  count as pending; row-weighted coverage computed in Python so cleaning
+  has ONE implementation — an SQL re-implementation was caught drifting in
+  review and removed), `scripts/map_drugs.py` (exit 0 done / 1 pending /
+  2 precondition), ADR 0006 (no fuzzy matching v1).
+- Gates: second-run-zero-API-calls asserted (mirrors fetch cache);
+  resume-from-misses; persistent-failure parking; report determinism.
+- Real-run guidance: distinct keys across two dev quarters likely
+  100K-200K; at --rate 15 (still well under RxNav's 20/s ceiling) expect
+  2-4h, safe to interrupt and resume. Trial first with --limit 100.
+  DoD >=80% row-weighted; if under, the unmapped_top report drives
+  deliberate fixes (salt list extension with citation, or documented
+  acceptance).
+
+## Phase 3 next (maintainer)
+
+1. Apply changeset on `phase-3-normalize`; gate; commit; PR; CI green.
+2. Trial: `map_drugs.py --limit 100` (see distinct_name_keys), then full
+   run (`--rate 15`, resumable; overnight OK). Rerun to prove
+   looked_up_this_run: 0. Paste report summary to PR.
+3. DoD: >=80% mapped on dev quarters (actual number to README at Phase 7);
+   second run zero-API asserted. Merge = Phase 3 confirmation; Phase 4
+   (signal statistics + hand-computed goldens) next — maintainer computes
+   golden values by hand per standing rule 6.
 
 ## Phase 1 state (2026-08-13)
 
