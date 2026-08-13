@@ -15,6 +15,21 @@ jobs:
   quality:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    services:
+      postgres:
+        # Same pinned image as docker-compose.yml — keep in lockstep.
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_DB: faers_test
+          POSTGRES_USER: faers
+          POSTGRES_PASSWORD: ci-only-password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U faers -d faers_test"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
     steps:
       - uses: actions/checkout@v4
 
@@ -40,3 +55,7 @@ jobs:
 
       - name: pytest (coverage gate ≥90%)
         run: uv run pytest
+        env:
+          # Localhost service container; the socket guard in tests/conftest.py
+          # allows loopback only, so this stays within the offline invariant.
+          DATABASE_URL: postgresql://faers:ci-only-password@127.0.0.1:5432/faers_test
