@@ -6,11 +6,12 @@
 #
 # Design notes (see docs/adr/0001, 0002):
 # - One storage engine for application data: postgres (pgvector/pgvector:pg16).
-# - Temporal runs as the official dev server (`temporal server start-dev`):
-#   lightweight, self-contained SQLite persistence on a named volume. It is
-#   deliberately NOT wired into the application Postgres — orchestration state
-#   and domain data stay separate. Production-shaped Temporal persistence is a
-#   Phase 5 concern; revisit there.
+# - Temporal runs as the official dev server (`temporal server start-dev`),
+#   in-memory: the image's non-root user cannot create a SQLite file on a
+#   root-owned named volume (exits with SQLITE_CANTOPEN), and dev-loop state
+#   does not need to survive restarts. It is deliberately NOT wired into the
+#   application Postgres — orchestration state and domain data stay separate.
+#   Durable Temporal persistence is a Phase 5 concern; revisit there.
 # - Images are pinned to exact tags: layout drift in dependencies is treated
 #   with the same suspicion as layout drift in FAERS files.
 
@@ -38,15 +39,11 @@ services:
       - start-dev
       - --ip
       - 0.0.0.0
-      - --db-filename
-      - /data/temporal.db
       - --ui-port
       - "8233"
     ports:
       - "${TEMPORAL_PORT:-7233}:7233"   # gRPC frontend
       - "${TEMPORAL_UI_PORT:-8233}:8233" # Web UI
-    volumes:
-      - temporaldata:/data
     healthcheck:
       test: ["CMD", "temporal", "operator", "cluster", "health"]
       interval: 5s
@@ -55,4 +52,3 @@ services:
 
 volumes:
   pgdata:
-  temporaldata:

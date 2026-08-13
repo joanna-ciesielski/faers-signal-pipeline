@@ -57,6 +57,12 @@ def _spec(name: str, columns: tuple[str, ...], aliases: dict[str, str] | None = 
     return TableSpec(name=name, columns=columns, aliases=aliases or {})
 
 
+def normalize_header(raw_header: str, spec: TableSpec) -> tuple[str, ...]:
+    """Lowercase, trim, and alias-map a raw $-delimited header row."""
+    columns = [column.strip().lower() for column in raw_header.rstrip("\r\n").split(DELIMITER)]
+    return tuple(spec.aliases.get(column, column) for column in columns)
+
+
 #: Current era (2014 Q3 onward). The seven tables and their exact column order.
 FAERS_2014Q3_TABLES: dict[str, TableSpec] = {
     "demo": _spec(

@@ -6,8 +6,8 @@ backfill), landing in PostgreSQL 16 + pgvector, computing PRR/ROR
 disproportionality statistics behind a CI quality gate — later published as a
 free, read-only web explorer.
 
-> **Status: Phase 0 (scaffold & data acquisition).** Nothing here is a
-> finished analysis. See `docs/plans/build-plan.md` for the phased plan.
+> **Status: Phase 1 (ETL core: parse → validate → stage).** Nothing here is
+> a finished analysis. See `docs/plans/build-plan.md` for the phased plan.
 
 ## What this is — and is not
 
@@ -34,9 +34,17 @@ This disclaimer accompanies every results surface this project produces.
 cp .env.example .env        # set a local Postgres password
 docker compose up -d        # PostgreSQL 16 + pgvector, Temporal dev server
 uv sync
-uv run pytest               # offline; green in well under 10 minutes
+uv run pytest               # loopback-only; DB tests use the compose Postgres
 uv run python scripts/fetch_quarter.py 2026q2   # fetch + checksum + verify one quarter
+export DATABASE_URL="postgresql://faers:YOUR_PASSWORD@127.0.0.1:5432/faers"
+uv run python scripts/load_quarter.py 2026q2    # parse -> validate -> stage + DQ report
 ```
+
+Every line of a quarter either stages cleanly or lands in the `quarantine`
+table with machine-readable reason codes — nothing is silently dropped or
+repaired. The per-quarter data-quality report (`data/reports/dq-*.json`)
+summarizes rows loaded, quarantine reasons, join orphans, and the
+deleted-cases list.
 
 ## Boundary & licensing statements
 
@@ -58,15 +66,24 @@ uv run python scripts/fetch_quarter.py 2026q2   # fetch + checksum + verify one 
   no accounts, and carries **no advertising**
   (`docs/adr/0005-no-ads-free-tier.md`).
 
-## Architecture (Phase 0 snapshot)
+## Architecture (Phase 1 snapshot)
 
-- `src/faers_signal_pipeline/` — library code. Currently: quarter/era model
-  (`quarter.py`, `layout.py`) and download/checksum/layout-verification
-  (`fetch.py`). Layouts are **verified against every downloaded quarter** —
-  FAERS layouts drift across eras, so the expected schema is data, not
-  assumption.
-- `scripts/fetch_quarter.py` — CLI wrapper; exit codes distinguish
-  "verified", "layout drift detected" and "download failed".
+- `quarter.py`, `layout.py` — quarter/era model and era-keyed layout specs;
+  layouts are **verified against every downloaded quarter** (FAERS layouts
+  drift across eras, so the expected schema is data, not assumption).
+- `fetch.py` + `scripts/fetch_quarter.py` — download, SHA-256, cache with
+  zero-network-on-hit, layout verification with machine-readable findings.
+- `ingest/` — streaming $-delimited parser built around documented FAERS
+  quirks (no quoting, embedded line breaks, latin-1 bytes, blank lines,
+  partial dates), each quirk a named test case; deleted-cases list parser
+  (format verified on real data).
+- `contracts/` — pydantic row models; Polars frame checks that route
+  violations to quarantine with *all* their reason codes; pandera schemas
+  certify what passes (pipeline invariants, not input filtering).
+- `db/` + `pipeline.py` + `scripts/load_quarter.py` — transactional staging
+  into Postgres (one transaction per quarter+table; idempotent re-runs load
+  zero duplicates — CI-gated), quarantine and runs lineage tables,
+  per-quarter DQ report artifact.
 - `docs/adr/` — architecture decision records, including the licensing and
   no-ads decisions.
 

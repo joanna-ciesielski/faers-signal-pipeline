@@ -60,6 +60,15 @@ class Quarter:
         """Suffix used by table files inside the zip, e.g. ``26Q2``."""
         return f"{self.year % 100:02d}Q{self.quarter}"
 
+    @property
+    def deleted_file_name(self) -> str:
+        """Deleted-cases list file name inside the zip, e.g. ``DELETE26Q2.txt``.
+
+        Verified against the real 2026q2 archive (``Deleted/DELETE26Q2.txt``):
+        a headerless list of CASEIDs, one per line, first line possibly blank.
+        """
+        return f"DELETE{self.table_file_stem_suffix}.txt"
+
     def zip_url_candidates(self, base_url: str) -> tuple[str, ...]:
         """Candidate download URLs, most likely casing first."""
         base = base_url.rstrip("/")
