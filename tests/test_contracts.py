@@ -143,3 +143,13 @@ class TestRowModels:
                 caseversion="1",
                 bogus="x",  # type: ignore[call-arg]
             )
+
+
+def test_drug_role_dn_accepted() -> None:
+    # DN (Drug Not Administered) documented in ASC_NTS revision "January
+    # 2025 (QDE 2024Q4)"; observed 686 times across real 2026q1+2026q2
+    # quarters, which is what drove this deliberate vocabulary extension.
+    frame = frame_for("drug", row_fields("drug", role_cod="DN"))
+    result = apply_contracts("drug", frame)
+    assert result.good.height == 1
+    assert result.quarantined.height == 0
