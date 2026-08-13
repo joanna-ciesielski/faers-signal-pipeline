@@ -6,10 +6,47 @@
 > "Build Plan B v3 — FAERS Signal Pipeline + Live Explorer Service (FINAL)".
 
 - Updated: 2026-08-13
-- Current phase: **1 — ETL core (implemented, in review; not committed)**.
-  Phase 0 merged to main as bc8e449 via PR #2. Phase 1 changeset built and
-  gate-verified in the build sandbox; delivery to maintainer for review,
-  commit on branch `phase-1-etl-core`, PR, then DoD confirmation.
+- Current phase: **2 — Case versioning & deduplication (implemented +
+  senior-reviewed in sandbox; delivered for maintainer review; not
+  committed)**. Phase 0 merged as bc8e449 (PR #2); Phase 1 merged as
+  e6bfe07 (PR #3) — both DoD-confirmed. Dev quarters 2026q1+2026q2 staged
+  with zero quarantine.
+
+## Phase 2 state (2026-08-13)
+
+- Gate green in sandbox: **138 passed, 2 skipped, coverage 96.6%**, mypy
+  --strict + ruff clean. Tests were written before the resolve code.
+- Implemented: `dedup/resolve.py` (pure; rules: highest caseversion wins
+  numerically; equal versions -> latest quarter's copy; deleted iff latest
+  deletion quarter >= latest sighting quarter, same-quarter tie -> deletion
+  wins; strictly-later sighting resurrects with highest version overall;
+  deterministic duplicate collapse, all counted); `db/cases.py`
+  (case_versions full history + current_cases pointer table,
+  truncate-and-rebuild from staged union in one tx — order-independent by
+  construction); `scripts/merge_cases.py`; `docs/dedup-policy.md` (FDA
+  basis vs our explicit policy choices vs residual cross-CASEID duplicate
+  risk).
+- Gates: order-independence proven end-to-end through Postgres (q1->q2 vs
+  q2->q1, identical tables, byte-identical merge report) and at pure level
+  (200-example hypothesis permutation property). Re-merge idempotent;
+  reload+remerge convergent. Adversarial review added named tests:
+  v10-beats-v9 numeric ordering, delete/resurrect/delete-again, stats
+  accounting identity (dupes+superseded+unique == total;
+  current+deleted == unique).
+- Note: current_cases is a POINTER table (caseid, caseversion, quarter,
+  primaryid); payload joins to staging on (quarter, primaryid). Phase 4
+  builds 2x2 tables from current_cases joined to stg_drug/stg_reac via
+  primaryid+quarter.
+
+## Phase 2 next (maintainer)
+
+1. Apply changeset on branch `phase-2-dedup`; gate; commit; PR; CI green.
+2. Run real merge: `uv run python scripts/merge_cases.py` after exporting
+   DATABASE_URL; paste stats into PR (expect ~800K unique cases from two
+   quarters, deletions applied from both lists).
+3. DoD: all scenarios green; order-independence gate green in CI; policy
+   doc reviewed. Merge = Phase 2 confirmation; Phase 3 (RxNav
+   normalization) planning next.
 
 ## Phase 1 state (2026-08-13)
 
@@ -54,6 +91,34 @@
 - Bugs fixed during build (named): polars is_between with bare strings
   reads them as column names (wrapped in pl.lit); test fixture zips must
   encode latin-1 (writestr defaults to UTF-8).
+
+## Real-load results (2026-08-13, maintainer machine)
+
+- 2026q2: 5,209,349 rows staged, 446 quarantined, 0 join orphans, 0 blank
+  lines, 0 structural failures. 2026q1: 5,278,761 staged, 240 quarantined.
+- **Every quarantined row was the same single cause:**
+  `vocab_violation:role_cod` value `DN` in DRUG. Verified against the
+  quarter's own ASC_NTS (Last Revised January 2025): revision history for
+  QDE 2024Q4 explicitly adds "Drug Not Administered (DN)" to ROLE_COD.
+  Vocabulary extended deliberately with that citation + named test
+  (`test_drug_role_dn_accepted`). Zero invalid dates, zero field-count
+  mismatches, zero non-digit ids across 10.5M rows — parser and checks
+  hold against real data.
+- ASC_NTS cross-check of the whole vocab set: REPT_COD 5DAY/30DAY,
+  DECHAL/RECHAL Y/N/U/D, DUR_COD incl SEC, RPSR codes, OUTC codes, AGE_COD,
+  AGE_GRP, WT_COD all match. Doc lists SEX as UNK/M/F (our set also carries
+  NS) and OCCP_COD as MD/PH/OT/LW/CN (ours also carries HP/RN) — wider
+  values retained for legacy-era tolerance, flagged for review at
+  full-history backfill; distinct-value audit query results to be recorded
+  here after maintainer runs it.
+- PR #3 open; CI sample committed (real-sample tests active). After DN
+  extension: both quarters re-staged with **rows_quarantined: 0** (2026q2:
+  5,209,795; 2026q1: 5,279,001 — drain arithmetic exact). Audit recorded in
+  vocab.py comments: occp_cod=HP observed despite absence from Jan-2025
+  ASC_NTS; sex data contains only F/M/null. CI green 37s incl. DB service +
+  real-sample tests (114 local). Awaiting maintainer review + merge of
+  PR #3 = Phase 1 DoD confirmation; Phase 2 (dedup centerpiece) planning
+  next.
 
 ## Next (maintainer)
 
