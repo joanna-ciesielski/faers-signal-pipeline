@@ -1,0 +1,58 @@
+# Local development stack: PostgreSQL 16 + pgvector, Temporal dev server + Web UI.
+#
+# Usage:
+#   cp .env.example .env   # then adjust if needed
+#   docker compose up -d
+#
+# Design notes (see docs/adr/0001, 0002):
+# - One storage engine for application data: postgres (pgvector/pgvector:pg16).
+# - Temporal runs as the official dev server (`temporal server start-dev`):
+#   lightweight, self-contained SQLite persistence on a named volume. It is
+#   deliberately NOT wired into the application Postgres — orchestration state
+#   and domain data stay separate. Production-shaped Temporal persistence is a
+#   Phase 5 concern; revisit there.
+# - Images are pinned to exact tags: layout drift in dependencies is treated
+#   with the same suspicion as layout drift in FAERS files.
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-faers}
+      POSTGRES_USER: ${POSTGRES_USER:-faers}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set in .env}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-faers} -d ${POSTGRES_DB:-faers}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  temporal:
+    image: temporalio/temporal:1.8.2
+    command:
+      - server
+      - start-dev
+      - --ip
+      - 0.0.0.0
+      - --db-filename
+      - /data/temporal.db
+      - --ui-port
+      - "8233"
+    ports:
+      - "${TEMPORAL_PORT:-7233}:7233"   # gRPC frontend
+      - "${TEMPORAL_UI_PORT:-8233}:8233" # Web UI
+    volumes:
+      - temporaldata:/data
+    healthcheck:
+      test: ["CMD", "temporal", "operator", "cluster", "health"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  pgdata:
+  temporaldata:
