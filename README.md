@@ -6,7 +6,7 @@ backfill), landing in PostgreSQL 16 + pgvector, computing PRR/ROR
 disproportionality statistics behind a CI quality gate — later published as a
 free, read-only web explorer.
 
-> **Status: Phase 2 (case versioning & deduplication).** Nothing here is
+> **Status: Phase 3 (drug normalization).** Nothing here is
 > a finished analysis. See `docs/plans/build-plan.md` for the phased plan.
 
 ## What this is — and is not
@@ -91,6 +91,12 @@ deleted-cases list.
   staged union so **quarter load order cannot change the outcome** —
   CI-gated end-to-end and by a 200-case permutation property test. Policy,
   FDA basis, and residual duplicate risk: `docs/dedup-policy.md`.
+- `normalize/` + `scripts/map_drugs.py` — DRUGNAME/PROD_AI → RxNorm RXCUI
+  via the open RxNav REST API only (no licensed release): deterministic
+  pre-clean rules (no fuzzy matching — ADR 0006), polite throttled client,
+  and an aggressive `drug_map` cache making re-runs zero-API-call
+  (CI-gated). Unmapped names are a reported deliverable, frequency-ranked,
+  never hidden.
 - `docs/adr/` — architecture decision records, including the licensing and
   no-ads decisions.
 
