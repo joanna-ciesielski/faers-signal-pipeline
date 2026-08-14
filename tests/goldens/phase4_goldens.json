@@ -1,0 +1,23 @@
+{
+  "_provenance": "Standing rule 6 (maintainer hand-computes goldens) was explicitly waived by maintainer instruction on 2026-08-13. These values were produced by the assisting engineer via manual step-by-step arithmetic (worked steps in tests/test_signal_stats.py), then independently verified against scipy.stats.chi2_contingency(correction=False) and statsmodels Table2x2 (implementations written by neither party), and only then compared to the pipeline implementation. Three-way agreement required. Cells (a,b,c,d) are corpus counts verified by the always-on e2e test.",
+  "pairs": {
+    "ALPHADRUG_x_Nausea": {
+      "a": 7, "b": 2, "c": 4, "d": 7,
+      "prr": 2.138889, "prr_ci_low": 0.908535, "prr_ci_high": 5.035408,
+      "ror": 6.125, "ror_ci_low": 0.83337, "ror_ci_high": 45.016769,
+      "chi_square": 3.430262
+    },
+    "BETADRUG_x_Nausea": {
+      "a": 4, "b": 2, "c": 7, "d": 7,
+      "prr": 1.333333, "prr_ci_low": 0.616706, "prr_ci_high": 2.882701,
+      "ror": 2.0, "ror_ci_low": 0.272121, "ror_ci_high": 14.699353,
+      "chi_square": 0.47138
+    },
+    "GAMMADRUG_x_Rash": {
+      "a": 3, "b": 2, "c": 2, "d": 13,
+      "prr": 4.5, "prr_ci_low": 1.029085, "prr_ci_high": 19.677674,
+      "ror": 9.75, "ror_ci_low": 0.95097, "ror_ci_high": 99.963705,
+      "chi_square": 4.355556
+    }
+  }
+}
