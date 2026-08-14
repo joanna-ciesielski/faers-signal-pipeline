@@ -42,6 +42,7 @@ def db_conn() -> Iterator[psycopg.Connection]:
     if not DATABASE_URL:
         pytest.skip("DATABASE_URL not set")
     with psycopg.connect(DATABASE_URL) as connection:
+        connection.autocommit = True
         # Isolated schema per test: never touches real staged data.
         with connection.cursor() as cur, connection.transaction():
             cur.execute("DROP SCHEMA IF EXISTS pytest_stage_sample CASCADE")

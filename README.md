@@ -6,7 +6,7 @@ backfill), landing in PostgreSQL 16 + pgvector, computing PRR/ROR
 disproportionality statistics behind a CI quality gate — later published as a
 free, read-only web explorer.
 
-> **Status: Phase 3 (drug normalization).** Nothing here is
+> **Status: Phase 4 (signal statistics).** Nothing here is
 > a finished analysis. See `docs/plans/build-plan.md` for the phased plan.
 
 ## What this is — and is not
@@ -97,6 +97,12 @@ deleted-cases list.
   and an aggressive `drug_map` cache making re-runs zero-API-call
   (CI-gated). Unmapped names are a reported deliverable, frequency-ranked,
   never hidden.
+- `signals/` + `scripts/compute_signals.py` — case-level 2x2 contingency
+  tables from deduplicated cases, PRR/ROR with 95% CIs and chi-square
+  (cited formulas), a>=3 threshold, written to the indexed `signal_stats`
+  serving table; golden values hand-computed by the maintainer on a
+  synthetic corpus (never invented by the implementation). Every results
+  artifact carries the signal-detection-not-risk disclaimer.
 - `docs/adr/` — architecture decision records, including the licensing and
   no-ads decisions.
 
