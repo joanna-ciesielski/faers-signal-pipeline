@@ -44,6 +44,17 @@ jobs:
       - name: Install Python + deps (locked)
         run: uv sync --frozen
 
+      - name: Start Temporal dev server
+        # Not a service container: the image needs a command override
+        # (server start-dev), which GH service containers don't support.
+        run: |
+          docker run -d --name temporal -p 7233:7233 \
+            temporalio/temporal:1.8.2 server start-dev --ip 0.0.0.0
+          for i in $(seq 1 30); do
+            (echo > /dev/tcp/127.0.0.1/7233) 2>/dev/null && break
+            sleep 1
+          done
+
       - name: ruff lint
         run: uv run ruff check .
 
