@@ -132,6 +132,79 @@
   5 DB test files). Production CLIs unaffected (single conn,
   commit-on-close).
 
+## Phase 4 real-run results (2026-08-13/14, maintainer machine, PR #6)
+
+- compute_signals over 792,346 deduplicated cases: 1,683,316 observed
+  pairs, **615,583 qualifying at a>=3**, 1,067,733 below threshold,
+  154,679 unmapped drug rows excluded+counted; 98.96% of cases carry a
+  mapped drug; every case has >=1 reaction (FAERS invariant, good sanity).
+- **Byte-identical recomputation proven on real data** (first attempt was
+  a false pass — recompute had failed on a missing env var and diffed the
+  file against itself; caught, redone properly).
+- **Face-validity milestone:** top associations include RXCUI 1000112 =
+  MEDROXYPROGESTERONE ACETATE x Meningioma (a=9,668, PRR ~5,331) — the
+  real, literature-documented progestogen-meningioma signal surfaced
+  independently. Candidate for docs/validation.md at Phase 7.
+- **Ranking decision (maintainer, 2026-08-13):** raw chi-square ranking is
+  degenerate on real data (perfect-overlap b=0/c=0 cells reach chi2 ~= N).
+  Report top-list now ranks by ROR 95% CI lower bound descending
+  (conservative standard); zero-cell pairs excluded from the list by
+  construction; serving table unchanged (all stats queryable). Second
+  index added on (cutoff_quarter, ror_ci_low DESC). Report key:
+  top_by_ror_ci_low.
+
+## Phase 4 face-validity + methodology notes (2026-08-14)
+
+- Per-drug profile query (the Phase 8-shaped surface) for rxcui 1000112
+  (medroxyprogesterone acetate), a>=20, ranked by ror_ci_low: Meningioma
+  a=9,668 ROR 67,044 (CI_low 55,837), Meningioma benign a=312, Intracranial
+  meningioma malignant a=46 — the documented real-world progestogen signal,
+  coherent across three related PTs; background reactions (headache,
+  nausea, fatigue) correctly show ROR << 1. Likely litigation-stimulated
+  reporting inflates counts (covered by the standing disclaimer).
+- **Methodology note recorded for Phase 7/8:** GLOBAL cross-drug top-N
+  lists by any disproportionality measure are dominated by rare-PT
+  concomitant clusters (case-series reports give every co-prescribed drug
+  a near-perfect small cell; observed: "Amyloid arthropathy" across 4
+  RXCUIs with b,c ~= 1-2). Not a bug — inherent to spontaneous data. The
+  product surface is per-drug ranking, where the artifact evaporates; the
+  methodology page must state this plainly rather than patching it with
+  ad-hoc filters.
+
+## Phase 4: MERGED as 2784bc8 (PR #6) — DoD confirmed 2026-08-14.
+
+## Phase 5 state (2026-08-14, sandbox-complete, delivered for review)
+
+- Implemented: `orchestration/` (activities wrapping the five stages —
+  all I/O in activities, heartbeats on load, error split:
+  QuarterLoadError/LayoutVerification non-retryable vs transient retryable
+  with backoff; workflows: IngestQuarterWorkflow with workflow ID
+  ingest-{quarter} as THE idempotency boundary, BackfillWorkflow with
+  bounded concurrency + per-quarter failure isolation,
+  ScheduledIngestWorkflow deriving target quarter from fire time —
+  quarter_for_fire_time pure + unit-tested); worker; CLIs (run_worker,
+  pipeline_workflow ingest/backfill, manage_schedule
+  create/describe/pause/unpause/delete — Feb/May/Aug/Nov 15 06:00 UTC,
+  overlap SKIP, catch-up 30d); docs/runbook.md; CI starts Temporal dev
+  server as a background container (service containers can't override
+  command). temporalio 1.31.0 added (pinned).
+- Failure-injection suite (5 tests, real dev server, no time-skipping —
+  audit decision: the time-skipping test server silently downloads a
+  binary, a hidden network dependency): e2e via Temporal (local fake RxNav
+  HTTP server on loopback); RxNav outage -> degraded-not-failed
+  (pending>0, workflow succeeds); poison file -> quarter fails cleanly,
+  backfill completes; duplicate start -> WorkflowAlreadyStartedError
+  no-op; worker killed after load -> resume on new worker, stage_quarter
+  runs count stays 1 (no reprocessing).
+- **Sandbox verification limit (honest):** no Temporal reachable here.
+  Sandbox gate = ruff + mypy clean + 199 passed/7 skipped WITHOUT
+  coverage gate. Full gate incl. failure injection + coverage runs on
+  maintainer machine (compose temporal up) and CI. Maintainer must report
+  the full-suite result before commit.
+- Phase 5 DoD remaining: full dev backfill via Temporal locally
+  (pipeline_workflow backfill 2026q1 2026q2 against the real DB) +
+  failure-injection green in CI.
+
 ## Phase 3 next (maintainer)
 
 1. Apply changeset on `phase-3-normalize`; gate; commit; PR; CI green.
