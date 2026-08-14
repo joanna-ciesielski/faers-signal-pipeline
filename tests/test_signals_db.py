@@ -118,6 +118,14 @@ class TestCorpusEndToEnd:
 
         report = outcome.report
         assert report["total_cases"] == TOTAL_CASES
+        # Ranking decision (2026-08-13): top list ordered by ROR CI lower
+        # bound descending. Corpus lower bounds: GAMMA 0.951 > ALPHA 0.833
+        # > BETA 0.272 — and zero-cell degenerate pairs can never appear
+        # (they have no ROR at all).
+        top = report["top_by_ror_ci_low"]
+        assert isinstance(top, list)
+        assert [entry["rxcui"] for entry in top] == ["900003", "900001", "900002"]
+        assert all(entry["ror"] is not None for entry in top)
         assert report["signal_rows_written"] == len(EXPECTED_CELLS)
         # Case 1019's unmappable drug row is excluded and counted.
         assert report["unmapped_drug_rows_excluded"] == 1

@@ -59,7 +59,7 @@ def main(argv: list[str] | None = None) -> int:
     summary = {
         key: value
         for key, value in outcome.report.items()
-        if key not in {"top_by_chi_square", "disclaimer"}
+        if key not in {"top_by_ror_ci_low", "disclaimer"}
     }
     print(f"signals computed -> report {outcome.report_path}")
     print(f"  {json.dumps(summary, sort_keys=True)}")

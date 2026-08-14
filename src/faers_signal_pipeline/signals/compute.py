@@ -50,6 +50,8 @@ CREATE TABLE IF NOT EXISTS signal_stats (
 );
 CREATE INDEX IF NOT EXISTS signal_stats_rank_idx
     ON signal_stats (cutoff_quarter, chi_square DESC);
+CREATE INDEX IF NOT EXISTS signal_stats_ror_rank_idx
+    ON signal_stats (cutoff_quarter, ror_ci_low DESC);
 """
 
 SIGNALS_REPORT_VERSION = 1
@@ -169,9 +171,15 @@ def compute_signals(
             for record in records:
                 copy.write_row(record)
 
+    # Ranking: descending lower bound of the ROR 95% CI — the conservative
+    # standard presentation. Raw chi-square ranking is dominated by tiny
+    # perfect-overlap cells (b=0/c=0 pairs reach chi2 ~= N); the CI lower
+    # bound suppresses them naturally (zero-cell pairs have no ROR at all,
+    # wide small-a intervals sink). Decision recorded 2026-08-13 after
+    # observing exactly that degeneracy on real two-quarter data.
     ranked = sorted(
         records,
-        key=lambda r: (-(r[13] if isinstance(r[13], float) else -1.0), r[1], r[2]),
+        key=lambda r: (-(r[11] if isinstance(r[11], float) else -1.0), r[1], r[2]),
     )
     top = [
         {
@@ -185,6 +193,7 @@ def compute_signals(
             "chi_square": r[13],
         }
         for r in ranked[:TOP_N_IN_REPORT]
+        if isinstance(r[11], float)
     ]
     report: dict[str, object] = {
         "report_version": SIGNALS_REPORT_VERSION,
@@ -194,7 +203,7 @@ def compute_signals(
         **contingency.stats,
         **drug_stats,
         "signal_rows_written": len(records),
-        "top_by_chi_square": top,
+        "top_by_ror_ci_low": top,
         "disclaimer": (
             "FAERS is spontaneous reporting: no denominators, duplicate and"
             " stimulated reports. These statistics are signal detection,"
