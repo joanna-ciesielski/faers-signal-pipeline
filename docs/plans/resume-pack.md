@@ -77,6 +77,61 @@
   deliberate fixes (salt list extension with citation, or documented
   acceptance).
 
+## Phase 3 real-run results (2026-08-13, maintainer machine, PR #5)
+
+- Full mapping run: 50,282 distinct name keys, all resolved (~35-40 min at
+  --rate 15). **mapped_rate 0.9509** (3,166,932 / 3,330,435 drug rows) —
+  DoD bar was 0.80. Source split: prod_ai 3,128,465 rows (98.8% of
+  mapped), drugname 38,467. Zero-API second run proven live
+  (looked_up_this_run: 0).
+- Unmapped residual (4.9%) characterized: dominated by genuine
+  non-specifics (VITAMINS 7,774 rows; UNSPECIFIED INGREDIENT; INSULIN NOS;
+  PROBIOTICS NOS; MINERALS\VITAMINS). **Recorded future deliberate-rule
+  candidates:** (a) trailing device/formulation suffix list (ELLIPTA, HFA
+  — TRELEGY ELLIPTA 4,622 + ADVAIR HFA 2,621 + BREO ELLIPTA 1,659 rows);
+  (b) backslash-joined combination splitting (FOSCARBIDOPA\FOSLEVODOPA
+  3,882 rows). ~0.3% of rows each; extend with citation when chosen,
+  never silently.
+
+## Phase 3: MERGED as 6e6f2b0 (PR #5) — DoD confirmed 2026-08-13.
+
+## Phase 4 state (2026-08-13, sandbox-complete, delivered; AWAITING GOLDENS)
+
+- Gate green: **183 passed, 3 skipped** (2 real-sample + 1 goldens-pending,
+  deliberately visible), coverage 95.7%, mypy --strict + ruff clean.
+- Implemented: `signals/stats.py` (PRR Evans 2001, ROR van Puijenbroek
+  2002, Pearson chi-square 1df NO continuity correction — pinned so hand
+  computation is unambiguous; zero-guards return None, never fabricate);
+  `signals/contingency.py` (case-level counting policy: one count per case
+  per pair; unmapped drug rows excluded AND counted; a>=3 with
+  below-threshold count); `signals/compute.py` + CLI (truncate-rebuild
+  signal_stats serving table, deterministic byte-identical report with
+  disclaimer — a DoD gate, tested); synthetic corpus (tests/corpus.py,
+  hand-countable, 20 cases: strong pair a=7, near-null a=4, threshold-edge
+  a=3, excluded a=2, multi-drug case, in-case dupes, unmappable drug);
+  worksheet docs/goldens/phase4-worksheet.md + tests/goldens/
+  phase4_goldens.json (nulls pending).
+- **GOLDENS COMPLETE (rule-6 waiver).** Maintainer explicitly waived
+  standing rule 6 on 2026-08-13 ("please complete the calculations as
+  well"). Provenance, recorded in the goldens JSON + test docstring:
+  manual step-by-step arithmetic by the assisting engineer (worked steps
+  preserved), independently verified against scipy chi2_contingency
+  (correction=False) and statsmodels Table2x2, then compared to the
+  pipeline implementation — three-way agreement on all 21 values.
+  Goldens: ALPHA×Nausea (7,2,4,7): PRR 2.139 (0.909–5.035), ROR 6.125
+  (0.833–45.017), χ² 3.430; BETA×Nausea (4,2,7,7): PRR 1.333
+  (0.617–2.883), ROR 2.0 (0.272–14.699), χ² 0.471; GAMMA×Rash (3,2,2,13):
+  PRR 4.5 (1.029–19.678), ROR 9.75 (0.951–99.964), χ² 4.356.
+  Mutation spot-checks active: Yates-corrected χ², 90% z, and
+  swapped-orientation PRR all provably fail the goldens. Gate now
+  **187 passed, 2 skipped** (real-sample only), 95.7% coverage.
+- Bug found during build (test-harness): plain reads on a psycopg
+  connection open an implicit transaction that demotes later transaction()
+  blocks to savepoints — uncommitted TRUNCATE locks deadlocked
+  cross-connection CLI tests. Fix: test fixtures set autocommit=True (all
+  5 DB test files). Production CLIs unaffected (single conn,
+  commit-on-close).
+
 ## Phase 3 next (maintainer)
 
 1. Apply changeset on `phase-3-normalize`; gate; commit; PR; CI green.
