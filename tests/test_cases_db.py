@@ -35,6 +35,10 @@ TEST_SCHEMA = "pytest_dedup"
 @pytest.fixture
 def conn() -> Iterator[psycopg.Connection]:
     with psycopg.connect(DATABASE_URL) as connection:
+        # Autocommit: plain reads must never leave an implicit transaction
+        # open (it would demote transaction() blocks to savepoints and
+        # hold locks that deadlock the CLIs' separate connections).
+        connection.autocommit = True
         with connection.cursor() as cur, connection.transaction():
             cur.execute(f"DROP SCHEMA IF EXISTS {TEST_SCHEMA} CASCADE")
             cur.execute(f"CREATE SCHEMA {TEST_SCHEMA}")
