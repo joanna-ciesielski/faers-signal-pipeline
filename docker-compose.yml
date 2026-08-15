@@ -11,7 +11,8 @@
 #   root-owned named volume (exits with SQLITE_CANTOPEN), and dev-loop state
 #   does not need to survive restarts. It is deliberately NOT wired into the
 #   application Postgres — orchestration state and domain data stay separate.
-#   Durable Temporal persistence is a Phase 5 concern; revisit there.
+#   Durable Temporal persistence is deliberately deferred; revisit before
+#   Phase 8 deployment (see docs/runbook.md).
 # - Images are pinned to exact tags: layout drift in dependencies is treated
 #   with the same suspicion as layout drift in FAERS files.
 
