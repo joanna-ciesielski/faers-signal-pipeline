@@ -367,7 +367,15 @@ class TestFailureInjection:
                 await asyncio.sleep(0.25)
             else:
                 raise AssertionError("load never completed under worker A")
-            task_a.cancel()
+            # Stop worker A at an activity boundary: shutdown() stops
+            # polling and drains the in-flight activity (if any), so
+            # the stop never abandons a started attempt. A hard mid-
+            # flight crash is recovered by Temporal's timeout machinery
+            # (heartbeat / start-to-close) — minutes-scale by design,
+            # which a test cannot wait out. The invariant under test is
+            # resume-from-durable-history without reprocessing, and
+            # that is boundary-independent.
+            await worker_a.shutdown()
             with contextlib.suppress(asyncio.CancelledError):
                 await task_a
             # Worker B resumes from durable history.
