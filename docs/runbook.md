@@ -57,8 +57,12 @@ Quarters predating the Deleted/ folder need `--allow-missing-deleted`
   names and the quarter completes *degraded* — `pending_lookups` in the
   result says how many. Re-running the ingest (or `map_drugs.py`) later
   picks up exactly the parked names (cache-first).
-- **Duplicate schedule fire:** overlap policy SKIP at the schedule level,
-  workflow-ID rejection at the workflow level. Either way: no-op.
+- **Duplicate schedule fire:** overlap policy SKIP at the schedule
+  level — a still-running scheduled ingest suppresses the next fire
+  entirely. The workflow-ID boundary also rejects a scheduled start
+  that collides with a manually started ingest of the same quarter;
+  that scheduled run then fails visibly in the Web UI (safe: no
+  double-processing, and the next quarterly fire is unaffected).
 
 ## Inspecting and replaying
 
@@ -72,6 +76,15 @@ Quarters predating the Deleted/ folder need `--allow-missing-deleted`
   workflow history (not pipeline data — that lives in Postgres). Durable
   Temporal persistence is a deliberate Phase 5+ deferral; revisit before
   Phase 8 deployment.
+
+## Security note (dev server)
+
+`PipelineConfig` — including `DATABASE_URL` with its password — is
+serialized into workflow histories and into the schedule definition on
+the Temporal server. That is acceptable only for the local single-user
+dev server. Before any shared or production Temporal deployment
+(Phase 8), credentials move out of workflow payloads: environment or
+secret store on the worker, or a payload codec.
 
 ## Log hygiene
 

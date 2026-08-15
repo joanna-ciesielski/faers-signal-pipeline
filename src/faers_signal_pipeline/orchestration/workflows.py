@@ -75,7 +75,11 @@ class IngestQuarterWorkflow:
             load_activity,
             args=[quarter_label, config],
             start_to_close_timeout=_LONG,
-            heartbeat_timeout=timedelta(minutes=10),
+            # The load activity heartbeats only bracket the call
+            # (start/done), so this must exceed the worst-case
+            # single-quarter load; per-table heartbeats are planned
+            # alongside the full-history backfill (Phase 8 gate).
+            heartbeat_timeout=timedelta(minutes=45),
             retry_policy=_RETRY,
         )
         merged = await workflow.execute_activity(
