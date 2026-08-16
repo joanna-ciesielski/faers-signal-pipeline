@@ -3,6 +3,34 @@
 All commands assume the compose stack is up (`docker compose up -d`) and
 `DATABASE_URL` is exported. The Temporal Web UI is at http://localhost:8233.
 
+## Schema migrations
+
+```bash
+uv run python scripts/migrate.py    # idempotent; safe any time
+```
+
+Every pipeline stage also applies pending migrations defensively, so a
+fresh clone works without this step — run it explicitly when you want
+schema changes applied at a moment you choose (e.g. before a backfill).
+An edited already-applied migration file is refused (checksum drift);
+schema changes are always new files. See `db/migrations/README.md` for
+the role model and the staging-table exception.
+
+## Semantic search over drug profiles
+
+```bash
+uv sync --extra vectors            # once: installs sentence-transformers
+uv run python scripts/build_embeddings.py     # builds profiles + embeds
+uv run python scripts/semantic_search.py "progestogen meningioma risk"
+uv run python scripts/semantic_search.py "hair loss" --must-contain Alopecia
+```
+
+First `build_embeddings` run downloads bge-small-en-v1.5 weights once
+(explicit network event; cached under `~/.cache`). Re-runs embed only
+profiles whose text changed — an unchanged database prints
+`embedded=0`, which is the reproducibility proof. The `--embedder stub`
+variant exists for offline demos and is what CI exercises.
+
 ## Normal operation
 
 ```bash
