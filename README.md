@@ -6,7 +6,7 @@ backfill), landing in PostgreSQL 16 + pgvector, computing PRR/ROR
 disproportionality statistics behind a CI quality gate — later published as a
 free, read-only web explorer.
 
-> **Status: Phase 4 (signal statistics).** Nothing here is
+> **Status: Phase 5 (Temporal orchestration & schedules).** Nothing here is
 > a finished analysis. See `docs/plans/build-plan.md` for the phased plan.
 
 ## What this is — and is not
@@ -103,6 +103,12 @@ deleted-cases list.
   serving table; golden values hand-computed by the maintainer on a
   synthetic corpus (never invented by the implementation). Every results
   artifact carries the signal-detection-not-risk disclaimer.
+- `orchestration/` + worker/schedule CLIs — Temporal workflows chaining
+  the five stages (fetch → load → merge → map → signals): quarterly
+  Schedule (overlap SKIP, 30-day catch-up), bounded-concurrency backfill,
+  and a CI failure-injection suite proving durable resume without
+  reprocessing, clean poison-file failure, RxNav degrade-not-fail, and
+  duplicate-fire idempotency. Operations: `docs/runbook.md`.
 - `docs/adr/` — architecture decision records, including the licensing and
   no-ads decisions.
 
