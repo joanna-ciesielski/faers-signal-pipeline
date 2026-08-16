@@ -27,12 +27,11 @@ import psycopg
 
 from faers_signal_pipeline.contracts.certify import certify
 from faers_signal_pipeline.contracts.frames import apply_contracts, split_join_orphans
+from faers_signal_pipeline.db.migrate import apply_migrations
 from faers_signal_pipeline.ingest.deleted import DeletedCases
 from faers_signal_pipeline.ingest.reader import QuarantinedLine, ReaderError, iter_table_chunks
 from faers_signal_pipeline.layout import TableSpec, tables_for_era
 from faers_signal_pipeline.quarter import Quarter
-
-_SCHEMA_SQL = Path(__file__).with_name("schema.sql")
 
 #: Child tables load after demo, in a fixed order (determinism).
 CHILD_TABLES = ("drug", "reac", "outc", "rpsr", "ther", "indi")
@@ -44,9 +43,15 @@ def connect(database_url: str) -> psycopg.Connection:
 
 
 def ensure_schema(conn: psycopg.Connection, quarter: Quarter) -> None:
-    """Create cross-cutting tables and per-table staging tables (idempotent)."""
+    """Apply migrations, then generate per-table staging DDL (idempotent).
+
+    Cross-cutting and derived tables live in plain-SQL migrations
+    (db/migrations/); the seven ``stg_*`` staging tables stay generated
+    from the era layout spec — layout.py is their single source of truth
+    (see db/migrations/README.md).
+    """
+    apply_migrations(conn)
     with conn.cursor() as cur, conn.transaction():
-        cur.execute(_SCHEMA_SQL.read_text(encoding="utf-8"))
         for table, spec in tables_for_era(quarter.era).items():
             columns = ",\n    ".join(f"{name} text" for name in spec.columns)
             cur.execute(
@@ -241,7 +246,7 @@ def record_run(
         cur.execute(
             "INSERT INTO runs (kind, quarter, started_at, finished_at, code_version,"
             " config_hash, input_sha256, stats)"
-            " VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
+            " VALUES (%s, %s, %s, %s, %s, %s, %s, %s) RETURNING id",
             (
                 kind,
                 quarter.label,
@@ -252,4 +257,13 @@ def record_run(
                 input_sha256,
                 json.dumps(stats, sort_keys=True),
             ),
+        )
+        row = cur.fetchone()
+        if row is None:  # pragma: no cover - RETURNING always yields one row
+            msg = "INSERT INTO runs returned no id"
+            raise RuntimeError(msg)
+        # Same transaction: a recorded run and its audit row are atomic.
+        cur.execute(
+            "INSERT INTO audit_log (action, quarter, object, details) VALUES (%s, %s, 'runs', %s)",
+            (kind, quarter.label, json.dumps({"run_id": int(row[0])})),
         )

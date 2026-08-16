@@ -22,6 +22,7 @@ import psycopg
 
 from faers_signal_pipeline import __version__
 from faers_signal_pipeline.db.loader import record_run
+from faers_signal_pipeline.db.migrate import apply_migrations
 from faers_signal_pipeline.normalize.clean import candidate_names
 from faers_signal_pipeline.quarter import Quarter
 from faers_signal_pipeline.signals.contingency import (
@@ -29,30 +30,6 @@ from faers_signal_pipeline.signals.contingency import (
     build_contingency,
 )
 from faers_signal_pipeline.signals.stats import chi_square, prr, ror
-
-_SIGNALS_DDL = """
-CREATE TABLE IF NOT EXISTS signal_stats (
-    cutoff_quarter text NOT NULL,
-    rxcui          text NOT NULL,
-    pt             text NOT NULL,
-    a              bigint NOT NULL,
-    b              bigint NOT NULL,
-    c              bigint NOT NULL,
-    d              bigint NOT NULL,
-    prr            double precision,
-    prr_ci_low     double precision,
-    prr_ci_high    double precision,
-    ror            double precision,
-    ror_ci_low     double precision,
-    ror_ci_high    double precision,
-    chi_square     double precision,
-    PRIMARY KEY (cutoff_quarter, rxcui, pt)
-);
-CREATE INDEX IF NOT EXISTS signal_stats_rank_idx
-    ON signal_stats (cutoff_quarter, chi_square DESC);
-CREATE INDEX IF NOT EXISTS signal_stats_ror_rank_idx
-    ON signal_stats (cutoff_quarter, ror_ci_low DESC);
-"""
 
 SIGNALS_REPORT_VERSION = 1
 _ROUND = 6  # serving-boundary rounding: readable, stable across runs
@@ -120,8 +97,8 @@ def compute_signals(
 ) -> SignalsOutcome:
     """Build and persist the ranked signal table from current cases."""
     started_at = datetime.datetime.now(tz=datetime.UTC)
-    with conn.cursor() as cur, conn.transaction():
-        cur.execute(_SIGNALS_DDL)
+    # DDL lives in db/migrations (0004_signal_stats.sql); apply is idempotent.
+    apply_migrations(conn)
 
     with conn.cursor() as cur:
         cur.execute("SELECT count(*) FROM current_cases")

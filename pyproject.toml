@@ -14,6 +14,13 @@ dependencies = [
     "temporalio>=1.7",
 ]
 
+[project.optional-dependencies]
+# Real embedding model (bge-small-en-v1.5). Deliberately optional: torch
+# is heavy and tests never need it — the stub embedder covers CI.
+vectors = [
+    "sentence-transformers>=3.0",
+]
+
 [dependency-groups]
 dev = [
     "mypy>=1.11",
@@ -63,6 +70,11 @@ mypy_path = ["src", "scripts"]
 explicit_package_bases = true
 warn_unreachable = true
 enable_error_code = ["ignore-without-code", "redundant-expr", "truthy-bool"]
+
+[[tool.mypy.overrides]]
+# Optional extra (vectors); imported lazily, no stubs published.
+module = "sentence_transformers.*"
+ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 addopts = "--cov=src --cov=scripts --cov-report=term-missing --cov-fail-under=90"
