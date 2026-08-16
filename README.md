@@ -6,8 +6,12 @@ backfill), landing in PostgreSQL 16 + pgvector, computing PRR/ROR
 disproportionality statistics behind a CI quality gate — later published as a
 free, read-only web explorer.
 
-> **Status: Phase 5 (Temporal orchestration & schedules).** Nothing here is
-> a finished analysis. See `docs/plans/build-plan.md` for the phased plan.
+> **Status: core platform complete (phases 0–6 merged; PRs #2–#8).**
+> Fetch → verify → stage → deduplicate → normalize → signal statistics →
+> Temporal orchestration → migrations/roles/audit → semantic search, each
+> phase merged through PR review with green CI and evidence posted on the
+> PR. Next: the full-history backfill and the public web explorer
+> (`docs/plans/build-plan.md`). Nothing here is a finished analysis.
 
 ## What this is — and is not
 
@@ -28,16 +32,74 @@ record, and provides **no medical advice**.
 
 This disclaimer accompanies every results surface this project produces.
 
-## Quickstart
+## Results (dev corpus: 2026Q1 + 2026Q2, as of 2026-08)
+
+Every number below is reproducible from this repository against the two
+development quarters, and each was posted as evidence on the PR that
+introduced it (PRs #3–#8). They will be refreshed at the full-history
+backfill.
+
+| What | Number | Where it comes from |
+|---|---|---|
+| Rows staged (7 tables × 2 quarters) | 10,488,110 | per-quarter DQ reports (PR #3) |
+| Rows quarantined, unexplained | **0** | every rejection carries machine-readable reason codes; the one systematic rejection found (role_cod `DN`) was traced to the Jan-2025 ASC_NTS revision and admitted with a cited vocabulary change |
+| Case version sightings → current cases | 819,683 → **792,346** | merge report; accounting identities verified on real data (PR #4) |
+| Drug-name mapping coverage (row-weighted) | **95.09%** | RxNav mapping report; re-runs make zero API calls (PR #5) |
+| Qualifying (drug, reaction) pairs, a ≥ 3 | **615,583** | `signal_stats` (PR #6) |
+| Known signal reproduced | medroxyprogesterone acetate × Meningioma, a = 9,668 | per-drug ranking by ROR CI lower bound (PR #6) — the literature-documented progestogen–meningioma association surfaced independently |
+| Orchestrated re-run convergence | byte-identical state | two-quarter Temporal backfill reproduced the exact same `current_cases` and `signal_stats` counts (PR #7) |
+| Drug safety profiles embedded | 3,586 | bge-small-en-v1.5; re-run embeds **0** (unchanged database does zero work — PR #8) |
+| Tests / coverage | 239 passed / 91.75% | CI, every commit |
+
+## Semantic search (Phase 6)
+
+Deterministic per-drug safety-profile texts, embedded and HNSW-indexed in
+pgvector, searchable by meaning with an optional exact-term filter:
 
 ```bash
+uv sync --extra vectors                          # real model (one-time download)
+uv run python scripts/build_embeddings.py
+uv run python scripts/semantic_search.py "progestogen meningioma risk" --k 5
+#  1. MEDROXYPROGESTERONE  2. PROMEGESTONE  3. MIFEPRISTONE  4. DROSPIRENONE ...
+uv run python scripts/semantic_search.py "hair loss" --must-contain Alopecia
+#  1. RITLECITINIB (a JAK inhibitor approved for alopecia areata) ...
+```
+
+The disclaimer above applies to these outputs too: retrieval quality is
+not evidence of causation.
+
+## Quickstart
+
+**Fast path — clone to green in under 10 minutes** (no FAERS download;
+tests run on committed synthetic fixtures and a real-format CI sample):
+
+```bash
+git clone https://github.com/joanna-ciesielski/faers-signal-pipeline.git
+cd faers-signal-pipeline
 cp .env.example .env        # set a local Postgres password
 docker compose up -d        # PostgreSQL 16 + pgvector, Temporal dev server
-uv sync
-uv run pytest               # loopback-only; DB tests use the compose Postgres
-uv run python scripts/fetch_quarter.py 2026q2   # fetch + checksum + verify one quarter
+uv sync                     # installs pinned CPython 3.12 + locked deps
+uv run pytest               # 239 tests, offline, deterministic, coverage-gated
+```
+
+**Full path — real data** (each quarter's archive is a ~60–90 MB
+download expanding to ~5M rows; a full load takes a few minutes per
+quarter):
+
+```bash
 export DATABASE_URL="postgresql://faers:YOUR_PASSWORD@127.0.0.1:5432/faers"
+uv run python scripts/fetch_quarter.py 2026q2   # fetch + checksum + layout-verify
 uv run python scripts/load_quarter.py 2026q2    # parse -> validate -> stage + DQ report
+uv run python scripts/merge_cases.py            # case-version dedup -> current_cases
+uv run python scripts/map_drugs.py              # RxNav mapping (throttled, resumable)
+uv run python scripts/compute_signals.py        # PRR/ROR/chi-square -> signal_stats
+```
+
+Or let Temporal run the whole chain (`docs/runbook.md`):
+
+```bash
+uv run python scripts/run_worker.py                              # terminal 1
+uv run python scripts/pipeline_workflow.py backfill 2026q1 2026q2  # terminal 2
 ```
 
 Every line of a quarter either stages cleanly or lands in the `quarantine`
@@ -66,7 +128,22 @@ deleted-cases list.
   no accounts, and carries **no advertising**
   (`docs/adr/0005-no-ads-free-tier.md`).
 
-## Architecture (Phase 1 snapshot)
+## Architecture
+
+```mermaid
+flowchart LR
+    FDA["FDA FAERS<br/>quarterly zips"] -->|"fetch + sha256 + layout verify"| STG[("stg_* staging<br/>+ quarantine")]
+    STG -->|"case-version dedup<br/>order-independent"| CC[("current_cases")]
+    STG -->|"clean names"| RXN["RxNav API<br/>cache-first"] --> DM[("drug_map")]
+    CC --> SIG["2x2 case-level tables<br/>PRR / ROR / chi-square"]
+    DM --> SIG
+    SIG --> SS[("signal_stats")]
+    SS -->|"deterministic profile texts"| EMB["bge-small-en-v1.5"] --> DP[("drug_profiles<br/>pgvector HNSW")]
+    TEMP["Temporal<br/>schedule + backfill"] -. orchestrates .-> STG
+    TEMP -. orchestrates .-> SS
+    MIG["plain-SQL migrations<br/>roles + audit_log"] -. governs .-> STG
+    MIG -. governs .-> DP
+```
 
 - `quarter.py`, `layout.py` — quarter/era model and era-keyed layout specs;
   layouts are **verified against every downloaded quarter** (FAERS layouts
@@ -210,6 +287,51 @@ erDiagram
     signal_stats ||--o{ drug_profiles : "top signals -> profile"
     runs ||--|| audit_log : "audited per run"
 ```
+
+## Analytical honesty
+
+Findings from building this that a results page must say out loud
+(details and worked examples: `docs/application-note.md`):
+
+- **Global top-N lists are structurally misleading.** Ranked across all
+  drugs, any disproportionality measure is dominated by rare-reaction
+  concomitant clusters: a handful of case-series reports gives every
+  co-prescribed drug a near-perfect small 2×2 cell. This is inherent to
+  spontaneous data, not a bug to filter away. The meaningful surface is
+  **per-drug** ranking, where the artifact evaporates — and that is the
+  only ranked surface this project serves.
+- **Raw chi-square is degenerate as a ranking key.** Perfect-overlap
+  cells (b = 0 or c = 0) reach χ² ≈ N regardless of clinical relevance.
+  Ranking therefore uses the **ROR 95% CI lower bound** (conservative
+  standard); all statistics remain queryable in `signal_stats`.
+- **Deletion lists reference all of FAERS history.** At two-quarter
+  scope, 9,697 deletions reference cases we have not staged
+  (`never_seen_deletions`) — expected, and a health indicator that
+  should trend toward zero at full-history backfill.
+- **Litigation- and publicity-stimulated reporting inflates counts.**
+  The medroxyprogesterone–meningioma cell (a = 9,668) is coherent across
+  three related MedDRA PTs and matches the literature — and its
+  magnitude still cannot be read as risk, only as a signal.
+
+## Out of scope
+
+Deliberately not in this project: medical devices (MAUDE), the licensed
+RxNorm full release, the MedDRA hierarchy, fuzzy drug-name matching
+(ADR 0006), causal inference or risk quantification of any kind, patient-
+level narratives, clinical decision support, accounts or advertising on
+the public tier (ADR 0005).
+
+## Documentation map
+
+- `docs/application-note.md` — methods write-up: data, dedup policy,
+  statistics with citations, ranking rationale, limitations.
+- `docs/runbook.md` — operations: migrations, worker, schedule, backfill,
+  failure semantics, semantic search.
+- `docs/dedup-policy.md` — case deduplication rules and FDA basis.
+- `docs/hipaa-alignment.md` — storage/access design in §164.312
+  vocabulary, with explicit scope honesty (no compliance claimed).
+- `docs/adr/` — architecture decision records.
+- `docs/plans/build-plan.md` — the phased plan this repo follows.
 
 ## License
 
