@@ -109,12 +109,107 @@ deleted-cases list.
   and a CI failure-injection suite proving durable resume without
   reprocessing, clean poison-file failure, RxNav degrade-not-fail, and
   duplicate-fire idempotency. Operations: `docs/runbook.md`.
+- `db/migrations/` + `scripts/migrate.py` — plain-SQL migrations
+  (checksummed, immutable once applied) owning every fixed table, the
+  role model (`etl_writer` / `readonly_analyst` / `readonly_web`), the
+  append-only `audit_log`, and the pgvector objects. Staging tables stay
+  generated from the era layout spec — the deliberate exception,
+  documented in `db/migrations/README.md`.
+- `signals/profiles.py` + `vectors/` — deterministic per-drug safety
+  profile texts embedded with bge-small-en-v1.5 (optional extra; a
+  deterministic stub keeps CI offline), HNSW-indexed, with a hybrid
+  semantic-search CLI. HIPAA-vocabulary design notes (with explicit
+  scope honesty: no compliance is claimed): `docs/hipaa-alignment.md`.
 - `docs/adr/` — architecture decision records, including the licensing and
   no-ads decisions.
 
 Quality bar (CI-enforced from day one): `ruff` (lint + format),
 `mypy --strict`, `pytest` with coverage ≥ 90%, all tests offline and
 deterministic.
+
+## Data model (ERD)
+
+Staging tables (`stg_demo`, `stg_drug`, `stg_reac`, `stg_outc`,
+`stg_rpsr`, `stg_ther`, `stg_indi`) carry the raw columns of their era
+spec plus `quarter`; payload access always joins through the
+`current_cases` pointer.
+
+```mermaid
+erDiagram
+    stg_demo {
+        text quarter
+        text primaryid
+        text caseid
+        text caseversion
+    }
+    stg_drug {
+        text quarter
+        text primaryid
+        text drugname
+        text prod_ai
+    }
+    stg_reac {
+        text quarter
+        text primaryid
+        text pt
+    }
+    case_versions {
+        text caseid PK
+        bigint version_int PK
+        text quarter PK
+        text primaryid
+    }
+    current_cases {
+        text caseid PK
+        text caseversion
+        text quarter
+        text primaryid
+    }
+    drug_map {
+        text name_key PK
+        text rxcui
+        text status
+    }
+    signal_stats {
+        text cutoff_quarter PK
+        text rxcui PK
+        text pt PK
+        bigint a
+        double_precision ror_ci_low
+    }
+    drug_profiles {
+        text cutoff_quarter PK
+        text rxcui PK
+        text profile_text
+        vector384 embedding
+    }
+    runs {
+        bigint id PK
+        text kind
+        text quarter
+        jsonb stats
+    }
+    audit_log {
+        bigint id PK
+        text actor
+        text action
+        jsonb details
+    }
+    quarantine {
+        bigint id PK
+        text quarter
+        text reason_codes
+        text raw_payload
+    }
+    stg_demo ||--o{ case_versions : "versions from DEMO"
+    case_versions ||--|| current_cases : "latest wins"
+    current_cases ||--o{ stg_drug : "join (quarter, primaryid)"
+    current_cases ||--o{ stg_reac : "join (quarter, primaryid)"
+    stg_drug }o--|| drug_map : "cleaned name -> rxcui"
+    drug_map ||--o{ signal_stats : "per (rxcui, pt)"
+    signal_stats ||--o{ drug_profiles : "top signals -> profile"
+    runs ||--|| audit_log : "audited per run"
+```
 
 ## License
 

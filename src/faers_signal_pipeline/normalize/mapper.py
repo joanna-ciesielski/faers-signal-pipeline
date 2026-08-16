@@ -22,19 +22,9 @@ from pathlib import Path
 import psycopg
 
 from faers_signal_pipeline import __version__
+from faers_signal_pipeline.db.migrate import apply_migrations
 from faers_signal_pipeline.normalize.clean import candidate_names
 from faers_signal_pipeline.normalize.rxnav import RxNavClient, RxNavError
-
-_DRUG_MAP_DDL = """
-CREATE TABLE IF NOT EXISTS drug_map (
-    name_key    text PRIMARY KEY,
-    rxcui       text,
-    status      text NOT NULL,        -- 'matched' | 'no_match'
-    matched_via text,                 -- 'exact' | 'salt_stripped'
-    created_at  timestamptz NOT NULL DEFAULT now(),
-    CHECK (status IN ('matched', 'no_match'))
-);
-"""
 
 MAP_REPORT_VERSION = 1
 DEFAULT_BATCH_SIZE = 200
@@ -42,8 +32,8 @@ UNMAPPED_TOP_N = 50
 
 
 def ensure_drug_map(conn: psycopg.Connection) -> None:
-    with conn.cursor() as cur, conn.transaction():
-        cur.execute(_DRUG_MAP_DDL)
+    """DDL lives in db/migrations (0003_drug_map.sql); apply is idempotent."""
+    apply_migrations(conn)
 
 
 @dataclass(frozen=True, slots=True)

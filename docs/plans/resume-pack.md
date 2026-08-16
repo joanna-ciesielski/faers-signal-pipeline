@@ -5,12 +5,14 @@
 > authoritative (unsanitized) plan is the maintainer's private Drive doc
 > "Build Plan B v3 — FAERS Signal Pipeline + Live Explorer Service (FINAL)".
 
-- Updated: 2026-08-13
-- Current phase: **2 — Case versioning & deduplication (implemented +
-  senior-reviewed in sandbox; delivered for maintainer review; not
-  committed)**. Phase 0 merged as bc8e449 (PR #2); Phase 1 merged as
-  e6bfe07 (PR #3) — both DoD-confirmed. Dev quarters 2026q1+2026q2 staged
-  with zero quarantine.
+- Updated: 2026-08-16
+- Current phase: **6 — Storage, pgvector & HIPAA-alignment doc
+  (implemented + verified in sandbox against real Postgres 16 +
+  pgvector 0.6; delivered for maintainer review)**. Merged and
+  DoD-confirmed: Phase 0 bc8e449 (PR #2), Phase 1 e6bfe07 (PR #3),
+  Phase 2 99bbab9 (PR #4), Phase 3 6e6f2b0 (PR #5), Phase 4 2784bc8
+  (PR #6), Phase 5 a2921ee (PR #7). Dev quarters 2026q1+2026q2 fully
+  processed end-to-end, incl. via Temporal.
 
 ## Phase 2 state (2026-08-13)
 
@@ -204,6 +206,121 @@
 - Phase 5 DoD remaining: full dev backfill via Temporal locally
   (pipeline_workflow backfill 2026q1 2026q2 against the real DB) +
   failure-injection green in CI.
+
+## Phase 5 real-run + closure (2026-08-14/15, maintainer machine + CI)
+
+- Maintainer-machine debugging, three rounds (fixes all verified in
+  sandbox first, then applied via paste-block):
+  1. Temporal typed payload converter rejects `object` type hints ->
+     all payload-facing annotations changed `dict[str, object]` ->
+     `dict[str, Any]` (5 activity returns + IngestResult fields).
+  2. Child workflow IDs in backfill tests collided with stuck pre-fix
+     workflows on the shared in-memory dev server -> `workflow_id_prefix`
+     field on PipelineConfig (production default "", bare ingest-{quarter}
+     stays THE idempotency boundary; tests use a unique per-run prefix).
+     `docker compose restart temporal` clears leftovers (in-memory).
+  3. Worker-kill test polled `runs` before activities created the schema
+     -> runs_count catches UndefinedTable -> 0.
+- Local gate after fixes: 206 passed, 0 skipped, coverage 91.78%.
+- Senior review pre-merge (fresh clone of the pushed branch; commit
+  63923ff): (a) load_activity heartbeats only bracket the call but
+  heartbeat_timeout was 10 min — any load >10 min would false-fail;
+  widened to 45 min, per-table heartbeats noted as Phase 8 prep
+  (full-history backfill has much bigger quarters — REVISIT AT PHASE 8);
+  (b) runbook overstated scheduled-fire collision as "no-op" — corrected
+  (fails visibly, safe, next fire unaffected); (c) stale compose note
+  fixed + runbook security note: PipelineConfig incl. DB password is
+  serialized into workflow histories — dev-server-only posture, move
+  credentials out of payloads before Phase 8 deployment. Boundary +
+  attribution sweep of all tracked files and history: clean.
+- CI flake found and fixed (commit d431084): worker-kill test hard-
+  cancelled worker A the moment the load's runs row was visible — that
+  row commits INSIDE the load activity, so on a slow runner the cancel
+  landed mid-attempt; an abandoned attempt is only recovered by
+  heartbeat/start-to-close timeouts (minutes-scale), beyond the test's
+  180 s budget -> TimeoutError. Fix: `await worker_a.shutdown()` (drains
+  in-flight activity; stop always lands on an activity boundary).
+  Deterministic; the gated invariant (resume from durable history, no
+  reprocessing, stage_quarter run count == 1) is unchanged.
+- DoD evidence (PR #7 comment): real two-quarter backfill via worker +
+  dev server, `--max-concurrency 1`: 2 succeeded / 0 failed; DB
+  converged to the exact Phase 4 state (current_cases 792,346,
+  signal_stats 615,583) — orchestrated re-run changed nothing. CI green
+  1m08s incl. Temporal dev-server boot.
+- Observation (maintainer's call, not repo content): the 5 GitHub-web
+  merge commits carry the account email as author; GitHub Settings ->
+  Emails -> "Keep my email addresses private" would use noreply for
+  future web merges. History not rewritten (personal, not client, email).
+
+## Phase 5: MERGED as a2921ee (PR #7) — DoD confirmed 2026-08-15.
+
+## Phase 6 state (2026-08-16, sandbox-complete, delivered for review)
+
+- Sandbox verification is REAL-DB this phase: local Postgres 16 +
+  pgvector 0.6.0 (HNSW supported). Gate: ruff + format clean, mypy
+  --strict clean, 234 passed / 5 skipped (Temporal-only skips), sandbox
+  coverage 89.38% vs 89.03% baseline without Temporal tests — expect
+  ~92% on maintainer machine/CI where those run.
+- Migrations: db/migrations/0001..0007 plain SQL (core, cases, drug_map,
+  signal_stats, audit_log, roles, vectors) + migrate.py runner
+  (schema_migrations tracking, SHA-256 per file, drift refusal, advisory
+  lock, applies into current search_path schema). Runtime DDL removed
+  from loader/cases/mapper/compute — each ensure_* now delegates to
+  apply_migrations (fresh-clone-just-works preserved). schema.sql
+  deleted. DELIBERATE EXCEPTION: stg_* staging tables stay generated
+  from layout.py (single source of truth; documented in
+  db/migrations/README.md).
+- Roles: etl_writer / readonly_analyst / readonly_web (web =
+  allow-list: signal_stats, drug_map, drug_profiles, runs — NO staging/
+  quarantine/audit, raw-payload hygiene). Grants schema-scoped via DO
+  blocks over current_schema(); ALTER DEFAULT PRIVILEGES covers
+  later-created tables (stg_*). Isolation matrix gated in
+  tests/test_roles_audit.py.
+- audit_log: append-only via trigger (UPDATE/DELETE/TRUNCATE raise even
+  for owner/superuser); record_run writes the audit row in the SAME
+  transaction as the runs row ({"run_id": ...} in details) — "audit
+  rows on every load" is the choke-point property, gated.
+- pgvector: drug_profiles (PK cutoff_quarter+rxcui, profile_text,
+  profile_sha256, embedding public.vector(384), embedded_sha, model),
+  HNSW cosine index. profiles.py builds DETERMINISTIC profile texts
+  (versioned format; ror_ci_low DESC NULLS LAST, pt ASC; display name =
+  lexicographically smallest matched name_key — deliberate drift-free
+  choice, no clean-name re-implementation). embed.py: Embedder protocol;
+  HashEmbedder (shake-256, unit-norm, offline — what CI runs);
+  BgeSmallEmbedder behind optional extra `vectors`
+  (sentence-transformers; uv sync --extra vectors; first run downloads
+  weights once — explicit network event, never in tests). Cache-first
+  bookkeeping: re-embed only on profile_sha/model change; second run
+  embedded=0 is the reproducibility proof. semantic_search: cosine
+  distance, deterministic (distance, rxcui) ordering, --must-contain
+  lexical filter (hybrid). All SQL search_path-proof
+  (public.vector / OPERATOR(public.<=>)).
+- CLIs: scripts/migrate.py, scripts/build_embeddings.py,
+  scripts/semantic_search.py (+ always-on precondition tests and
+  DB-backed CLI round-trip tests).
+- Docs: docs/hipaa-alignment.md (scope honesty: HIPAA does not apply,
+  zero compliance claims; s164.312 analogous-control mapping;
+  identified-reports handling; advisory checklist), README ERD
+  (mermaid) + Phase 6 architecture bullets, runbook migration +
+  semantic-search sections, db/migrations/README.md.
+- Adoption path on maintainer DB: existing tables are adopted via
+  CREATE IF NOT EXISTS no-ops; schema_migrations records them applied.
+  Roles/grants/audit/vectors arrive on first apply (any stage or
+  scripts/migrate.py).
+- Phase 6 DoD checklist: ERD in README (done); role isolation tests
+  (done); audit rows on every load (done, gated); semantic demo
+  reproducible (embedded=0 on re-run — real-model run on maintainer
+  machine pending); zero compliance claims (hipaa doc reviewed for
+  claim-like wording).
+
+## Operational note (2026-08-15)
+
+- The assistant sandbox was reclaimed twice mid-phase; the GitHub repo is
+  the single source of truth. Sandbox work always starts by re-cloning
+  `main` (public repo, no auth needed) — never trust residual sandbox
+  state. Sandbox cannot reach fis.fda.gov or any Temporal server, and its
+  Postgres availability varies; full-gate verification happens on the
+  maintainer machine and CI.
 
 ## Phase 3 next (maintainer)
 

@@ -23,35 +23,16 @@ import psycopg
 
 from faers_signal_pipeline import __version__
 from faers_signal_pipeline.db.loader import record_run
+from faers_signal_pipeline.db.migrate import apply_migrations
 from faers_signal_pipeline.dedup.resolve import Resolution, resolve_current
 from faers_signal_pipeline.quarter import Quarter
-
-_CASES_DDL = """
-CREATE TABLE IF NOT EXISTS case_versions (
-    caseid       text   NOT NULL,
-    caseversion  text   NOT NULL,
-    version_int  bigint NOT NULL,
-    quarter      text   NOT NULL,
-    primaryid    text   NOT NULL,
-    PRIMARY KEY (caseid, version_int, quarter)
-);
-
-CREATE TABLE IF NOT EXISTS current_cases (
-    caseid      text PRIMARY KEY,
-    caseversion text NOT NULL,
-    quarter     text NOT NULL,
-    primaryid   text NOT NULL
-);
-CREATE INDEX IF NOT EXISTS current_cases_quarter_primaryid_idx
-    ON current_cases (quarter, primaryid);
-"""
 
 MERGE_REPORT_VERSION = 1
 
 
 def ensure_case_tables(conn: psycopg.Connection) -> None:
-    with conn.cursor() as cur, conn.transaction():
-        cur.execute(_CASES_DDL)
+    """DDL lives in db/migrations (0002_cases.sql); apply is idempotent."""
+    apply_migrations(conn)
 
 
 def _read_frame(conn: psycopg.Connection, sql: str, columns: list[str]) -> pl.DataFrame:

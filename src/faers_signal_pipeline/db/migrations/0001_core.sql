@@ -1,6 +1,6 @@
--- Phase 1 staging: cross-cutting tables.
--- Staging tables for the seven FAERS extracts are generated from the era
--- layout spec at ensure_schema() time (single source of truth in layout.py).
+-- Cross-cutting tables (Phase 1). Staging tables for the seven FAERS
+-- extracts are generated from the era layout spec at load time — see
+-- README.md in this directory.
 
 CREATE TABLE IF NOT EXISTS runs (
     id           bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
