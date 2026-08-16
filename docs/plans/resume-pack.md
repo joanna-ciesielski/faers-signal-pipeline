@@ -6,9 +6,8 @@
 > "Build Plan B v3 — FAERS Signal Pipeline + Live Explorer Service (FINAL)".
 
 - Updated: 2026-08-16
-- Current phase: **6 — Storage, pgvector & HIPAA-alignment doc
-  (implemented + verified in sandbox against real Postgres 16 +
-  pgvector 0.6; delivered for maintainer review)**. Merged and
+- Current phase: **7 — Docs & portfolio assets (plan delivered, awaiting
+  maintainer go)**. Phase 6 MERGED (PR #8) — DoD confirmed 2026-08-16. Merged and
   DoD-confirmed: Phase 0 bc8e449 (PR #2), Phase 1 e6bfe07 (PR #3),
   Phase 2 99bbab9 (PR #4), Phase 3 6e6f2b0 (PR #5), Phase 4 2784bc8
   (PR #6), Phase 5 a2921ee (PR #7). Dev quarters 2026q1+2026q2 fully
@@ -312,6 +311,40 @@
   reproducible (embedded=0 on re-run — real-model run on maintainer
   machine pending); zero compliance claims (hipaa doc reviewed for
   claim-like wording).
+
+## Phase 6 real-run + closure (2026-08-16, maintainer machine)
+
+- Migration adoption on the production dev DB: `scripts/migrate.py` ->
+  "7 total, 7 newly applied"; existing tables adopted, roles/audit/
+  vector objects created. CI green on the changeset (1m11s).
+- INTEL-MAC PLATFORM SAGA (important for future ML deps): maintainer
+  iMac is macOS 12 / x86_64. PyTorch dropped Intel-Mac wheels after
+  2.2.x (2.2.2 wheels stop at cp312); onnxruntime >=1.20 needs
+  macOS >=13; latest transformers declares torch>=2.5. Resolution:
+  era-coherent Intel-Mac fork in the `vectors` extra (torch 2.2.2,
+  numpy<2, sentence-transformers<4 -> 3.4.1, transformers<5 -> 4.57.6)
+  via `[tool.uv] environments` split (without the split the resolver
+  UNIFIES and drags base numpy down everywhere — verified and fixed);
+  `.python-version` pins CPython 3.12 project-wide (matches mypy
+  target; CI + venv now 3.12). Every wheel in the Intel-Mac fork was
+  verified against PyPI for macosx<=12/x86_64/cp312 before delivery.
+  Zip download failed her once ("cannot find"); pyproject patch was
+  re-delivered as a heredoc + `uv lock` regenerated on her machine.
+- Real-model embedding evidence (bge-small-en-v1.5, CPU, py3.12):
+  3,586 drug profiles built at cutoff 2026q2; first run embedded=3586,
+  second run embedded=0 / up_to_date=3586 (reproducibility proof).
+- Face validity: "progestogen meningioma risk" -> MEDROXYPROGESTERONE
+  (rxcui 1000112, the Phase 4 signal) #1, then PROMEGESTONE,
+  MIFEPRISTONE, DROSPIRENONE (4/5 progestogen-related). "hair loss
+  after chemotherapy" --must-contain Alopecia -> RITLECITINIB (JAK
+  inhibitor approved for alopecia areata) #1.
+- Gate on maintainer machine after pins: Python 3.12.13, 239 passed,
+  coverage 91.75%. Pins commit de1f5b5 pushed; PR #8 evidence comment
+  posted; MERGED. NOTE: merge happened before CI reported on de1f5b5 —
+  main-branch CI run must be confirmed green (first thing next
+  session if not already done).
+
+## Phase 6: MERGED (PR #8) — DoD confirmed 2026-08-16.
 
 ## Operational note (2026-08-15)
 
