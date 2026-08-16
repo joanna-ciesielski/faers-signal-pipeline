@@ -17,8 +17,28 @@ dependencies = [
 [project.optional-dependencies]
 # Real embedding model (bge-small-en-v1.5). Deliberately optional: torch
 # is heavy and tests never need it — the stub embedder covers CI.
+# Intel-Mac pins: PyTorch dropped macOS x86_64 after 2.2.x, and torch 2.2
+# predates numpy 2 — constraints scoped to that platform only. The 2.2.x
+# wheels stop at CPython 3.12, hence the committed .python-version. The
+# ST<4 / transformers<5 pins keep the stack era-coherent with torch 2.2.
 vectors = [
     "sentence-transformers>=3.0",
+    "torch<2.3; sys_platform == 'darwin' and platform_machine == 'x86_64'",
+    "numpy<2; sys_platform == 'darwin' and platform_machine == 'x86_64'",
+    "sentence-transformers<4; sys_platform == 'darwin' and platform_machine == 'x86_64'",
+    "transformers<5; sys_platform == 'darwin' and platform_machine == 'x86_64'",
+    "torch>=2.4; sys_platform != 'darwin' or platform_machine != 'x86_64'",
+    "numpy>=2; sys_platform != 'darwin' or platform_machine != 'x86_64'",
+]
+
+[tool.uv]
+# Split resolution so the Intel-Mac pins above stay CONFINED to that
+# platform: without the fork, the resolver unifies and drags the base
+# environment's numpy/torch down everywhere.
+environments = [
+    "sys_platform == 'darwin' and platform_machine == 'x86_64'",
+    "sys_platform == 'darwin' and platform_machine != 'x86_64'",
+    "sys_platform != 'darwin'",
 ]
 
 [dependency-groups]
