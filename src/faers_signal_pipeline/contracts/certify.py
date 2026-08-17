@@ -12,7 +12,7 @@ from __future__ import annotations
 import pandera.polars as pa
 import polars as pl
 
-from faers_signal_pipeline.layout import FAERS_2014Q3_TABLES
+from faers_signal_pipeline.layout import Era, tables_for_era
 
 _REQUIRED_NON_NULL: dict[str, frozenset[str]] = {
     "demo": frozenset({"primaryid", "caseid", "caseversion"}),
@@ -25,9 +25,9 @@ _REQUIRED_NON_NULL: dict[str, frozenset[str]] = {
 }
 
 
-def _schema_for(table: str) -> pa.DataFrameSchema:
+def _schema_for(table: str, era: Era) -> pa.DataFrameSchema:
     required = _REQUIRED_NON_NULL[table]
-    spec = FAERS_2014Q3_TABLES[table]
+    spec = tables_for_era(era)[table]
     return pa.DataFrameSchema(
         {column: pa.Column(str, nullable=column not in required) for column in spec.columns},
         strict=True,
@@ -35,15 +35,21 @@ def _schema_for(table: str) -> pa.DataFrameSchema:
     )
 
 
-SCHEMAS: dict[str, pa.DataFrameSchema] = {table: _schema_for(table) for table in _REQUIRED_NON_NULL}
+#: Schemas are era-keyed: certification asserts the frame carries exactly
+#: its ERA's columns (the required non-null identity columns exist in
+#: every specified era). Built lazily so unspecified eras never construct.
+_SCHEMAS: dict[tuple[str, Era], pa.DataFrameSchema] = {}
 
 
-def certify(table: str, frame: pl.DataFrame) -> pl.DataFrame:
-    """Validate a contract-passing frame against its pandera schema.
+def certify(table: str, frame: pl.DataFrame, era: Era = Era.FAERS_2014Q3) -> pl.DataFrame:
+    """Validate a contract-passing frame against its era's pandera schema.
 
     Returns the validated frame; raises ``pandera.errors.SchemaError`` on an
     invariant breach (which is a bug in the pipeline, not bad input data).
     """
-    validated = SCHEMAS[table].validate(frame)
+    key = (table, era)
+    if key not in _SCHEMAS:
+        _SCHEMAS[key] = _schema_for(table, era)
+    validated = _SCHEMAS[key].validate(frame)
     assert isinstance(validated, pl.DataFrame)  # noqa: S101 - narrowing for mypy
     return validated

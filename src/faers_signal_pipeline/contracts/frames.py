@@ -135,8 +135,17 @@ class ContractResult:
 
 
 def apply_contracts(table: str, frame: pl.DataFrame) -> ContractResult:
-    """Route each row to good/quarantined per the table's contract checks."""
-    checks = TABLE_CHECKS[table]
+    """Route each row to good/quarantined per the table's contract checks.
+
+    Checks referencing columns the frame's ERA does not publish (e.g.
+    ``age_grp`` before 2014Q3) are skipped: a contract on an unpublished
+    column cannot apply. The frame's columns come from the era spec, so
+    this is era awareness without threading era objects through here.
+    """
+    present = set(frame.columns)
+    checks = [
+        (code, expr) for code, expr in TABLE_CHECKS[table] if set(expr.meta.root_names()) <= present
+    ]
     reasons = pl.concat_list(
         [pl.when(expr).then(pl.lit(reason_code)).otherwise(None) for reason_code, expr in checks]
     ).list.drop_nulls()
