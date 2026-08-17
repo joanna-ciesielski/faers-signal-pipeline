@@ -30,7 +30,7 @@ from faers_signal_pipeline.contracts.frames import apply_contracts, split_join_o
 from faers_signal_pipeline.db.migrate import apply_migrations
 from faers_signal_pipeline.ingest.deleted import DeletedCases
 from faers_signal_pipeline.ingest.reader import QuarantinedLine, ReaderError, iter_table_chunks
-from faers_signal_pipeline.layout import TableSpec, tables_for_era
+from faers_signal_pipeline.layout import STAGING_SUPERSET_TABLES, TableSpec, tables_for_era
 from faers_signal_pipeline.quarter import Quarter
 
 #: Child tables load after demo, in a fixed order (determinism).
@@ -43,16 +43,21 @@ def connect(database_url: str) -> psycopg.Connection:
 
 
 def ensure_schema(conn: psycopg.Connection, quarter: Quarter) -> None:
-    """Apply migrations, then generate per-table staging DDL (idempotent).
+    """Apply migrations, then generate staging DDL (idempotent).
 
     Cross-cutting and derived tables live in plain-SQL migrations
     (db/migrations/); the seven ``stg_*`` staging tables stay generated
-    from the era layout spec — layout.py is their single source of truth
-    (see db/migrations/README.md).
+    from the layout spec — layout.py is their single source of truth
+    (see db/migrations/README.md). Staging DDL always uses the SUPERSET
+    spec, never the loading quarter's era: an era quarter loading first
+    on a fresh schema must not create narrow tables that break later
+    current-era loads (CI-gated). The era spec is validated up front so
+    an unspecified era still fails loudly before any DDL.
     """
+    tables_for_era(quarter.era)  # unspecified era -> loud failure
     apply_migrations(conn)
     with conn.cursor() as cur, conn.transaction():
-        for table, spec in tables_for_era(quarter.era).items():
+        for table, spec in STAGING_SUPERSET_TABLES.items():
             columns = ",\n    ".join(f"{name} text" for name in spec.columns)
             cur.execute(
                 f"CREATE TABLE IF NOT EXISTS stg_{table} (\n"
@@ -199,7 +204,7 @@ def load_table(
                     _insert_row_quarantine(cur, quarter.label, member, join.orphans, spec)
                     good = join.good
 
-                good = certify(table, good)
+                good = certify(table, good, quarter.era)
                 _copy_frame(cur, table, quarter.label, good)
                 stats.rows_loaded += good.height
                 if table == "demo" and not good.is_empty():
