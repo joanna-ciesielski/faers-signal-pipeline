@@ -1,5 +1,7 @@
 # faers-signal-pipeline
 
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.21982755.svg)](https://doi.org/10.5281/zenodo.21982755)
+
 A public pharmacovigilance data platform: Python 3.12 ETL over FDA FAERS
 quarterly extracts, orchestrated with Temporal (quarterly Schedule +
 backfill), landing in PostgreSQL 16 + pgvector, computing PRR/ROR
