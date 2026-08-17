@@ -70,9 +70,9 @@ does not matter for correctness — the dedup merge is order-independent by
 construction (Phase 2 gate) — concurrency is purely a throughput knob.
 Quarters predating the Deleted/ folder need `--allow-missing-deleted`
 (the recorded override; see docs/dedup-policy.md). That includes the
-whole 2012Q4-2014Q2 era: real archives from that era were inspected and
-ship no deleted-cases lists at all, so a historical backfill passes the
-flag for those ranges.
+whole 2012Q4-2014Q2 era AND the legacy AERS era (2004Q1-2012Q3): real
+archives from both were inspected and ship no deleted-cases lists at
+all, so a historical backfill passes the flag for those ranges.
 
 ## Failure semantics (what the failure-injection suite proves)
 

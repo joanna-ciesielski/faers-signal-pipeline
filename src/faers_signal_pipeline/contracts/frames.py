@@ -21,6 +21,7 @@ from dataclasses import dataclass
 import polars as pl
 
 from faers_signal_pipeline.contracts import vocab
+from faers_signal_pipeline.layout import TableSpec
 
 REASON_SEPARATOR = ";"
 
@@ -134,17 +135,28 @@ class ContractResult:
     quarantined: pl.DataFrame  # original columns + ``reasons`` (joined codes)
 
 
-def apply_contracts(table: str, frame: pl.DataFrame) -> ContractResult:
+def apply_contracts(
+    table: str, frame: pl.DataFrame, spec: TableSpec | None = None
+) -> ContractResult:
     """Route each row to good/quarantined per the table's contract checks.
 
     Checks referencing columns the frame's ERA does not publish (e.g.
     ``age_grp`` before 2014Q3) are skipped: a contract on an unpublished
     column cannot apply. The frame's columns come from the era spec, so
     this is era awareness without threading era objects through here.
+    When a spec declares ``blank_ok`` columns (blank has a documented
+    meaning, e.g. legacy FOLL_SEQ blank == version 0), their
+    missing_required checks are skipped too; value-shape checks still
+    apply to populated values.
     """
     present = set(frame.columns)
+    blank_ok_codes = {
+        f"missing_required:{column}" for column in (spec.blank_ok if spec else frozenset())
+    }
     checks = [
-        (code, expr) for code, expr in TABLE_CHECKS[table] if set(expr.meta.root_names()) <= present
+        (code, expr)
+        for code, expr in TABLE_CHECKS[table]
+        if set(expr.meta.root_names()) <= present and code not in blank_ok_codes
     ]
     reasons = pl.concat_list(
         [pl.when(expr).then(pl.lit(reason_code)).otherwise(None) for reason_code, expr in checks]

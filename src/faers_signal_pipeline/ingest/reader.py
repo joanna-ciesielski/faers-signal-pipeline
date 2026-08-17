@@ -117,6 +117,10 @@ def iter_table_chunks(
                     blank_lines += 1
                     continue
                 fields = stripped.split(DELIMITER)
+                if spec.trailing_delimiter and len(fields) == expected + 1 and fields[-1] == "":
+                    # Legacy AERS lines end with a trailing "$" (uniform on
+                    # real data); drop exactly the one empty field it makes.
+                    fields = fields[:-1]
                 if len(fields) != expected:
                     quarantined.append(
                         QuarantinedLine(

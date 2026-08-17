@@ -37,9 +37,15 @@ DELIMITER = "$"
 class Era(enum.StrEnum):
     """FAERS layout era, by the quarter's position in published boundaries."""
 
+    LEGACY_AERS_EARLY = "legacy_aers_early"
     LEGACY_AERS = "legacy_aers"
     FAERS_2012Q4 = "faers_2012q4"
     FAERS_2014Q3 = "faers_2014q3"
+
+    @property
+    def is_legacy(self) -> bool:
+        """ISR-keyed AERS eras (everything before the 2012Q4 transition)."""
+        return self in (Era.LEGACY_AERS_EARLY, Era.LEGACY_AERS)
 
 
 @dataclass(frozen=True, slots=True)
@@ -51,10 +57,33 @@ class TableSpec:
     # Column names accepted as aliases at verification time (old -> canonical),
     # e.g. gndr_cod -> sex within the 2014Q3 era.
     aliases: dict[str, str]
+    # Every data line of the legacy AERS era ends with a trailing "$"
+    # (measured on all 135,784 DEMO rows of the real 2010Q1 archive,
+    # 2026-08-17): the reader drops exactly one trailing EMPTY field when
+    # this is set. Anything else still quarantines as a field-count
+    # mismatch.
+    trailing_delimiter: bool = False
+    # Columns whose blank is a DOCUMENTED meaning rather than a missing
+    # value (legacy FOLL_SEQ blank == initial report == version 0, see
+    # docs/dedup-policy.md): the missing_required contract check is
+    # skipped for these; staging keeps the raw NULL.
+    blank_ok: frozenset[str] = frozenset()
 
 
-def _spec(name: str, columns: tuple[str, ...], aliases: dict[str, str] | None = None) -> TableSpec:
-    return TableSpec(name=name, columns=columns, aliases=aliases or {})
+def _spec(
+    name: str,
+    columns: tuple[str, ...],
+    aliases: dict[str, str] | None = None,
+    trailing_delimiter: bool = False,
+    blank_ok: frozenset[str] = frozenset(),
+) -> TableSpec:
+    return TableSpec(
+        name=name,
+        columns=columns,
+        aliases=aliases or {},
+        trailing_delimiter=trailing_delimiter,
+        blank_ok=blank_ok,
+    )
 
 
 #: A UTF-8 byte-order mark as it appears after latin-1 decoding. The real
@@ -72,6 +101,119 @@ def normalize_header(raw_header: str, spec: TableSpec) -> tuple[str, ...]:
     columns = [column.strip().lower() for column in raw_header.rstrip("\r\n").split(DELIMITER)]
     return tuple(spec.aliases.get(column, column) for column in columns)
 
+
+#: Legacy AERS era (2004 Q1 - 2012 Q3): ISR-keyed identity. Transcribed
+#: from the real ``aers_ascii_2010q1.zip`` headers (inspected 2026-08-17).
+#: Identity mapping (maintainer-approved policy, docs/dedup-policy.md):
+#: ISR -> primaryid (the child-join key), CASE -> caseid,
+#: FOLL_SEQ -> caseversion with blank == initial report == version 0.
+#: Children carry ISR only (no caseid). Archives use uppercase ``.TXT``
+#: members, ship ``Asc_nts.doc``, extra STAT/SIZE members (ignored), no
+#: deleted-cases lists, and EVERY data line ends with a trailing ``$``.
+LEGACY_AERS_TABLES: dict[str, TableSpec] = {
+    "demo": _spec(
+        "demo",
+        (
+            "primaryid",
+            "caseid",
+            "i_f_code",
+            "caseversion",
+            "image",
+            "event_dt",
+            "mfr_dt",
+            "fda_dt",
+            "rept_cod",
+            "mfr_num",
+            "mfr_sndr",
+            "age",
+            "age_cod",
+            "sex",
+            "e_sub",
+            "wt",
+            "wt_cod",
+            "rept_dt",
+            "occp_cod",
+            "death_dt",
+            "to_mfr",
+            "confid",
+            "reporter_country",
+        ),
+        aliases={
+            "isr": "primaryid",
+            "case": "caseid",
+            "i_f_cod": "i_f_code",
+            "foll_seq": "caseversion",
+            "gndr_cod": "sex",
+        },
+        trailing_delimiter=True,
+        blank_ok=frozenset({"caseversion"}),
+    ),
+    "drug": _spec(
+        "drug",
+        (
+            "primaryid",
+            "drug_seq",
+            "role_cod",
+            "drugname",
+            "val_vbm",
+            "route",
+            "dose_vbm",
+            "dechal",
+            "rechal",
+            "lot_num",
+            "exp_dt",
+            "nda_num",
+        ),
+        aliases={"isr": "primaryid"},
+        trailing_delimiter=True,
+    ),
+    "reac": _spec(
+        "reac",
+        ("primaryid", "pt"),
+        aliases={"isr": "primaryid"},
+        trailing_delimiter=True,
+    ),
+    "outc": _spec(
+        "outc",
+        ("primaryid", "outc_cod"),
+        aliases={"isr": "primaryid"},
+        trailing_delimiter=True,
+    ),
+    "rpsr": _spec(
+        "rpsr",
+        ("primaryid", "rpsr_cod"),
+        aliases={"isr": "primaryid"},
+        trailing_delimiter=True,
+    ),
+    "ther": _spec(
+        "ther",
+        ("primaryid", "dsg_drug_seq", "start_dt", "end_dt", "dur", "dur_cod"),
+        aliases={"isr": "primaryid", "drug_seq": "dsg_drug_seq"},
+        trailing_delimiter=True,
+    ),
+    "indi": _spec(
+        "indi",
+        ("primaryid", "indi_drug_seq", "indi_pt"),
+        aliases={"isr": "primaryid", "drug_seq": "indi_drug_seq"},
+        trailing_delimiter=True,
+    ),
+}
+
+#: Earliest legacy sub-era (2004 Q1 - 2005 Q2): identical to LEGACY_AERS
+#: except DEMO ends at CONFID — REPORTER_COUNTRY did not exist yet.
+#: Boundary observed on the real archives (2026-08-17 sweep: 2004q1-2005q2
+#: fail the 23-column header, 2005q3 onward verify clean). All other
+#: tables are shared with LEGACY_AERS.
+LEGACY_AERS_EARLY_TABLES: dict[str, TableSpec] = {
+    **LEGACY_AERS_TABLES,
+    "demo": _spec(
+        "demo",
+        LEGACY_AERS_TABLES["demo"].columns[:-1],  # ... "confid"
+        aliases=LEGACY_AERS_TABLES["demo"].aliases,
+        trailing_delimiter=True,
+        blank_ok=frozenset({"caseversion"}),
+    ),
+}
 
 #: 2012 Q4 - 2014 Q2 era: case/version identity, pre-expansion columns.
 #: Transcribed from the real ``faers_ascii_2013q1.zip`` headers (inspected
@@ -230,15 +372,25 @@ def era_for_quarter(year: int, quarter: int) -> Era:
         return Era.FAERS_2014Q3
     if (year, quarter) >= (2012, 4):
         return Era.FAERS_2012Q4
-    return Era.LEGACY_AERS
+    if (year, quarter) >= (2005, 3):
+        return Era.LEGACY_AERS
+    return Era.LEGACY_AERS_EARLY
 
 
 #: Staging tables are shared across eras, so their DDL must come from the
-#: widest spec — the current era, whose columns are a strict superset of
-#: every specified era's (CI-gated in tests/test_era_2012q4.py). Era specs
-#: still drive verification and COPY column lists; era-absent columns are
-#: simply NULL for that era's rows.
-STAGING_SUPERSET_TABLES: dict[str, TableSpec] = FAERS_2014Q3_TABLES
+#: UNION of every specified era's columns (CI-gated subset invariant in
+#: tests/test_era_2012q4.py and tests/test_era_legacy.py). The union is
+#: the current era plus the legacy-only DEMO columns (image, death_dt,
+#: confid — raw fidelity; NULL for modern rows). Era specs still drive
+#: verification and COPY column lists.
+STAGING_SUPERSET_TABLES: dict[str, TableSpec] = {
+    **FAERS_2014Q3_TABLES,
+    "demo": _spec(
+        "demo",
+        (*FAERS_2014Q3_TABLES["demo"].columns, "image", "death_dt", "confid"),
+        aliases=FAERS_2014Q3_TABLES["demo"].aliases,
+    ),
+}
 
 
 def tables_for_era(era: Era) -> dict[str, TableSpec]:
@@ -252,8 +404,6 @@ def tables_for_era(era: Era) -> dict[str, TableSpec]:
         return FAERS_2014Q3_TABLES
     if era is Era.FAERS_2012Q4:
         return FAERS_2012Q4_TABLES
-    msg = (
-        f"Layout spec for era {era.value!r} is not yet defined. "
-        "Add it from that era's ASC_NTS documentation before loading."
-    )
-    raise NotImplementedError(msg)
+    if era is Era.LEGACY_AERS:
+        return LEGACY_AERS_TABLES
+    return LEGACY_AERS_EARLY_TABLES
