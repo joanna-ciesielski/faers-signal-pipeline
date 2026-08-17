@@ -5,9 +5,73 @@
 > authoritative (unsanitized) plan is the maintainer's private Drive doc
 > "Build Plan B v3 — FAERS Signal Pipeline + Live Explorer Service (FINAL)".
 
-- Updated: 2026-08-16
-- Current phase: **8a — Historical era support: FAERS_2012Q4
-  (implemented + verified in sandbox; delivered for review)**. Phase 7
+- Updated: 2026-08-17
+- Current phase: **8b — Legacy AERS era (implemented + verified in
+  sandbox; delivered for review)**. Phase 8a MERGED (PR #10) — DoD
+  confirmed 2026-08-17.
+
+## Phase 8b state (2026-08-17, sandbox-complete, delivered for review)
+
+- Design approved by maintainer after real-data scans of 2010q1:
+  identity ISR->primaryid / CASE->caseid / FOLL_SEQ->caseversion with
+  blank == version 0 (131,385/135,784 real rows blank, incl. many
+  follow-ups); cross-era rule: ANY FAERS-era sighting supersedes ANY
+  legacy sighting (era-ranked sort key in resolve, qkey >= 20124).
+- Scan also caught: EVERY legacy data line ends with a trailing "$"
+  (uniform 24 fields for 23 columns) — would have quarantined all rows.
+  TableSpec.trailing_delimiter: reader drops exactly one trailing EMPTY
+  field; anything else still quarantines.
+- Changeset: layout.py LEGACY_AERS_TABLES (aliases isr/case/foll_seq/
+  i_f_cod/gndr_cod + per-table drug_seq->dsg_/indi_drug_seq;
+  blank_ok={caseversion}); STAGING_SUPERSET now the UNION (demo +
+  image/death_dt/confid); TableSpec gains trailing_delimiter + blank_ok;
+  contracts skip missing_required for blank_ok columns (spec passed by
+  loader); certify: legacy era drops caseversion from required-non-null;
+  resolve: fill_null(0) version + era_rank leading sort key; cases.py
+  merge SELECT coalesces blank caseversion to derived '0' (single choke
+  point); quarter.zip_url_candidates era-aware (aers_ascii_* for
+  legacy; local cache name stays canonical).
+- tests/test_era_legacy.py (15): spec-vs-observed raw headers, superset
+  union invariant, aers URL candidates, trailing-$ parse + non-empty
+  extra field still quarantines + modern era unaffected, real-shaped
+  legacy zip verifies, uppercase .TXT members match, resolve era
+  ordering (permutation-tested) + blank-as-zero + blank-vs-blank
+  quarter rule, legacy DB load raw fidelity (NULL caseversion, era-only
+  columns staged, children caseid NULL), THREE-ERA merge (legacy blank +
+  2013 v1 + 2026 v2 -> modern wins; legacy-only case current at '0'),
+  legacy certify with null caseversion.
+- 8b DoD remaining (maintainer machine): real 2010q1 end-to-end +
+  verify-only sweep of all 35 legacy quarters (expect within-era drift
+  findings — treat like 2012q4: observe, alias/fix, regression-test),
+  then mapping catch-up + signals; evidence to PR.
+
+## Phase 8a real-run + closure (2026-08-16/17, maintainer machine)
+
+- 2013q1 end-to-end: 2,553,034 rows staged, 9,346 quarantined (0.37%),
+  reason breakdown fully explained (dose_amt free-text junk 8,319,
+  invalid exp_dt 174, vocab one-offs 1-3 each, join_orphans 698) — NO
+  systematic era vocabulary drift, no admission needed.
+- 2012q4 verification FAILED first (the design working): three real
+  within-era drift artifacts — UTF-8 BOM on DRUG header (surfaces as
+  latin-1 "ï»¿" prefix), lot_nbr (renamed lot_num by 2013q1),
+  outc_code (later outc_cod). Fixed: BOM strip in normalize_header +
+  spec aliases, regression test reproduces observed headers. All 7 era
+  quarters then verify clean.
+- Mixed-era merge: 1,042,641 sightings -> 1,015,299 current; 5
+  cross-era supersessions observed on real data.
+- Mapping catch-up: 42,286 new lookups (--rate 15, ~47 min), overall
+  89.92% row-weighted (vs 95.09% modern-only; >80% target),
+  mapped_via_drugname 521,821 (era path proven), pending 0. Signals:
+  715,656 qualifying pairs, unmapped exclusions down 35,180.
+- Gate: 248 passed, 91.83%. CI green ~1m10s.
+- OPERATOR INCIDENT + recovery: branch checkout failed silently
+  ("already exists"), 8a commit landed on LOCAL MAIN; gh pr create then
+  prompted to push main. Caught before push; recovery: branch -f to
+  the commit, force-push branch, reset main to origin, PR from branch.
+  LESSON for future apply-blocks: use `git checkout -B <branch>` (not
+  -b) so re-runs never leave work on main.
+- GitHub 503 outage at comment/merge time; merge succeeded, evidence
+  comment posted after. Phase 7
   MERGED (PR #9) — DoD confirmed 2026-08-16. Maintainer chose TRUE FULL
   HISTORY (2004->present): 8a = 2012Q4-era spec (this changeset), 8b =
   legacy AERS era (ISR-keyed; identity adapter, per-era contracts,

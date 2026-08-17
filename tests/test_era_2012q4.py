@@ -99,11 +99,12 @@ class TestLayout:
             superset = set(STAGING_SUPERSET_TABLES[table].columns)
             assert set(spec.columns) <= superset, table
 
-    def test_legacy_era_still_fails_loudly(self) -> None:
-        from faers_signal_pipeline.layout import tables_for_era
+    def test_legacy_era_has_its_own_spec(self) -> None:
+        """Graduated in Phase 8b: legacy AERS now resolves to its ISR-keyed
+        spec (tests/test_era_legacy.py owns its coverage)."""
+        from faers_signal_pipeline.layout import LEGACY_AERS_TABLES, tables_for_era
 
-        with pytest.raises(NotImplementedError, match="legacy_aers"):
-            tables_for_era(Era.LEGACY_AERS)
+        assert tables_for_era(Era.LEGACY_AERS) is LEGACY_AERS_TABLES
 
 
 class TestVerification:

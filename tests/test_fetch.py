@@ -262,10 +262,13 @@ class TestVerifyLayout:
         assert not report.ok
         assert any(f.code is VerificationCode.ZIP_UNREADABLE for f in report.findings)
 
-    def test_unsupported_era_reported(self, tmp_path: Path) -> None:
+    def test_unreadable_legacy_archive_reported(self, tmp_path: Path) -> None:
+        """Graduated in Phase 8b: every era now has a spec, so a legacy
+        quarter proceeds to real verification — an unreadable file reports
+        ZIP_UNREADABLE rather than ERA_UNSUPPORTED."""
         early = Quarter(2010, 1)
         path = tmp_path / "early.zip"
         path.write_bytes(b"irrelevant")
         report = verify_layout(path, early)
         assert not report.ok
-        assert [f.code for f in report.findings] == [VerificationCode.ERA_UNSUPPORTED]
+        assert [f.code for f in report.findings] == [VerificationCode.ZIP_UNREADABLE]

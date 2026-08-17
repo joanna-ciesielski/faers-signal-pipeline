@@ -49,7 +49,12 @@ def merge_cases(conn: psycopg.Connection, report_dir: Path) -> tuple[Resolution,
 
     sightings = _read_frame(
         conn,
-        "SELECT caseid, caseversion, quarter, primaryid FROM stg_demo",
+        # COALESCE: legacy-AERS rows stage FOLL_SEQ blank as NULL (raw
+        # fidelity); the DERIVED version label '0' (initial report, approved
+        # policy) enters here — the single choke point feeding both
+        # case_versions and resolution.
+        "SELECT caseid, COALESCE(caseversion, '0') AS caseversion,"
+        " quarter, primaryid FROM stg_demo",
         ["caseid", "caseversion", "quarter", "primaryid"],
     )
     deletions = _read_frame(
