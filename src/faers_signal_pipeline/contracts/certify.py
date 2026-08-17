@@ -26,7 +26,11 @@ _REQUIRED_NON_NULL: dict[str, frozenset[str]] = {
 
 
 def _schema_for(table: str, era: Era) -> pa.DataFrameSchema:
-    required = _REQUIRED_NON_NULL[table]
+    required = set(_REQUIRED_NON_NULL[table])
+    if era.is_legacy:
+        # Blank FOLL_SEQ (-> caseversion) is a documented meaning in this
+        # era: initial report, resolved as version 0 at merge time.
+        required.discard("caseversion")
     spec = tables_for_era(era)[table]
     return pa.DataFrameSchema(
         {column: pa.Column(str, nullable=column not in required) for column in spec.columns},

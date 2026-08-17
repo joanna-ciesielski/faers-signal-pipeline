@@ -63,6 +63,12 @@ def ensure_schema(conn: psycopg.Connection, quarter: Quarter) -> None:
                 f"CREATE TABLE IF NOT EXISTS stg_{table} (\n"
                 f"    quarter text NOT NULL,\n    {columns}\n)"
             )
+            # Adoption: CREATE IF NOT EXISTS no-ops on a pre-existing
+            # table, so superset GROWTH (e.g. the legacy-only demo
+            # columns) must be applied explicitly — observed failing on
+            # the real database when Phase 8b first ran (2026-08-17).
+            for name in spec.columns:
+                cur.execute(f"ALTER TABLE stg_{table} ADD COLUMN IF NOT EXISTS {name} text")
             cur.execute(
                 f"CREATE INDEX IF NOT EXISTS stg_{table}_quarter_idx ON stg_{table} (quarter)"
             )
@@ -190,7 +196,7 @@ def load_table(
                         stats.reason_counts.get(line.reason_code, 0) + 1
                     )
 
-                result = apply_contracts(table, chunk.frame)
+                result = apply_contracts(table, chunk.frame, spec)
                 _count_reasons(stats, result.quarantined)
                 stats.rows_quarantined += result.quarantined.height
                 _insert_row_quarantine(cur, quarter.label, member, result.quarantined, spec)

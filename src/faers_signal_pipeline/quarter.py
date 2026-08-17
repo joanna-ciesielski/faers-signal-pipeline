@@ -70,9 +70,15 @@ class Quarter:
         return f"DELETE{self.table_file_stem_suffix}.txt"
 
     def zip_url_candidates(self, base_url: str) -> tuple[str, ...]:
-        """Candidate download URLs, most likely casing first."""
+        """Candidate download URLs, most likely casing first.
+
+        Legacy-era archives are published as ``aers_ascii_*`` (observed on
+        the real 2010Q1 download, 2026-08-16); the local cache filename
+        stays canonical ``faers_ascii_<label>.zip`` for every era.
+        """
         base = base_url.rstrip("/")
+        prefix = "aers" if self.era.is_legacy else "faers"
         return (
-            f"{base}/faers_ascii_{self.year}q{self.quarter}.zip",
-            f"{base}/faers_ascii_{self.year}Q{self.quarter}.zip",
+            f"{base}/{prefix}_ascii_{self.year}q{self.quarter}.zip",
+            f"{base}/{prefix}_ascii_{self.year}Q{self.quarter}.zip",
         )

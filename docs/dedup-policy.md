@@ -80,3 +80,30 @@ drugs, and dates — explicitly out of scope for this rule-based module, and
 one reason all outputs remain *signal detection, not risk quantification*.
 Counts derived from `current_cases` should be read with that inflation in
 mind.
+
+
+## Legacy AERS era (2004Q1-2012Q3) — identity mapping and cross-era ordering
+
+Approved 2026-08-17, from inspection of the real 2010Q1 archive (135,784
+DEMO rows measured):
+
+- **Identity mapping:** `ISR -> primaryid` (the child-join key; children
+  in this era carry ISR only), `CASE -> caseid`,
+  `FOLL_SEQ -> caseversion`. Staging keeps raw fidelity (blank FOLL_SEQ
+  stages as NULL, plus the era-only `image`, `death_dt`, `confid`
+  columns).
+- **Blank FOLL_SEQ == version 0.** Blank is the documented initial-report
+  meaning (131,385 of 135,784 real rows), and appears on many follow-ups
+  too; the derived label '0' enters `case_versions`/`current_cases` at
+  merge time (single choke point: the merge's staging SELECT). Where two
+  blank-version sightings of one case span quarters, the existing
+  equal-version rule resolves chronologically (latest quarter wins).
+- **Cross-era ordering:** ANY FAERS-era sighting (2012Q4 onward)
+  supersedes ANY legacy sighting of the same case. Rationale: every
+  FAERS-era quarter postdates every legacy quarter, and legacy FOLL_SEQ
+  numbers are not comparable to FAERS caseversion numbers, so numeric
+  comparison across the boundary would be meaningless. Implemented as an
+  era-ranked sort key in the pure resolution module; permutation-tested.
+- **No deleted-cases lists exist in this era** (loads take the recorded
+  `allow_missing_deleted` override); deletion lists from modern quarters
+  reference legacy CASE numbers in the same id space and apply normally.

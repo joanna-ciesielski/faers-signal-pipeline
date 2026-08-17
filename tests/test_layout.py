@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
-
 from faers_signal_pipeline.layout import (
     FAERS_2014Q3_TABLES,
     Era,
@@ -39,9 +37,9 @@ def test_demo_accepts_gndr_cod_alias_for_sex() -> None:
     assert FAERS_2014Q3_TABLES["demo"].aliases == {"gndr_cod": "sex"}
 
 
-@pytest.mark.parametrize("era", [Era.LEGACY_AERS])
-def test_unspecified_eras_fail_loudly(era: Era) -> None:
-    """FAERS_2012Q4 graduated to a real spec in Phase 8a; legacy AERS
-    (ISR-keyed) still fails loudly until Phase 8b specifies it."""
-    with pytest.raises(NotImplementedError):
-        tables_for_era(era)
+def test_every_era_has_a_spec() -> None:
+    """All three eras graduated to real specs (Phase 8a: 2012Q4;
+    Phase 8b: legacy AERS). The loud-failure guard lived here until then;
+    layout drift within an era is still caught by runtime verification."""
+    for era in Era:
+        assert tables_for_era(era)

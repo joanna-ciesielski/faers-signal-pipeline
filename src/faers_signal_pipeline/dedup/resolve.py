@@ -29,7 +29,19 @@ _QKEY = (
     + pl.col("quarter").str.slice(5, 1).cast(pl.Int64)
 ).alias("qkey")
 
-_VERSION_INT = pl.col("caseversion").cast(pl.Int64).alias("version_int")
+#: Blank caseversion is the legacy-AERS "initial report" (approved policy,
+#: docs/dedup-policy.md): it resolves as version 0. Modern eras never stage
+#: a blank caseversion (their contracts require it), so the fill is inert
+#: for them.
+_VERSION_INT = pl.col("caseversion").cast(pl.Int64).fill_null(0).alias("version_int")
+
+#: First quarter of case/version identity (FAERS era). Cross-era ordering
+#: rule (approved 2026-08-17): ANY FAERS-era sighting supersedes ANY
+#: legacy-AERS sighting of the same case — chronologically sound, since
+#: every FAERS-era quarter postdates every legacy quarter, and legacy
+#: FOLL_SEQ numbers are not comparable to FAERS caseversion numbers.
+_FAERS_ERA_QKEY = 20124
+_ERA_RANK = (pl.col("qkey") >= _FAERS_ERA_QKEY).cast(pl.Int64).alias("era_rank")
 
 
 @dataclass(frozen=True, slots=True)
@@ -56,6 +68,7 @@ def resolve_current(sightings: pl.DataFrame, deletions: pl.DataFrame) -> Resolut
 
     keyed = (
         sightings.with_columns(_QKEY, _VERSION_INT)
+        .with_columns(_ERA_RANK)
         # Deterministic collapse of duplicates: full sort then keep the last
         # row per (caseid, version, quarter) — identical under any input
         # order. Duplicates are counted below, never silently dropped.
@@ -68,9 +81,12 @@ def resolve_current(sightings: pl.DataFrame, deletions: pl.DataFrame) -> Resolut
     # this is what deletions compare against and what resurrection tests.
     vstar = keyed.group_by("caseid").agg(pl.col("qkey").max().alias("vstar"))
 
-    # Winner per case: highest version; among equal versions, latest quarter.
+    # Winner per case: era first (FAERS-era sightings supersede legacy),
+    # then highest version; among equal versions, latest quarter.
     winners = (
-        keyed.sort(["caseid", "version_int", "qkey"]).group_by("caseid", maintain_order=True).last()
+        keyed.sort(["caseid", "era_rank", "version_int", "qkey"])
+        .group_by("caseid", maintain_order=True)
+        .last()
     )
     superseded_sightings = keyed.height - winners.height
 

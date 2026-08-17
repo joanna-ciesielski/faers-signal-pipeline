@@ -48,7 +48,11 @@ class TestEraMapping:
             (2014, 2, Era.FAERS_2012Q4),
             (2012, 4, Era.FAERS_2012Q4),
             (2012, 3, Era.LEGACY_AERS),
-            (2004, 1, Era.LEGACY_AERS),
+            (
+                2004,
+                1,
+                Era.LEGACY_AERS_EARLY,
+            ),  # graduated in Phase 8b: pre-2005Q3 demo lacks reporter_country
         ],
     )
     def test_boundaries(self, year: int, quarter: int, era: Era) -> None:
