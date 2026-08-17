@@ -22,7 +22,7 @@ from urllib.parse import quote
 
 import pytest
 
-from faers_signal_pipeline.layout import DELIMITER, FAERS_2014Q3_TABLES
+from faers_signal_pipeline.layout import DELIMITER, tables_for_era
 from faers_signal_pipeline.quarter import Quarter
 
 _LOOPBACK_HOSTS = frozenset({"127.0.0.1", "::1", "localhost"})
@@ -91,6 +91,7 @@ def build_quarter_zip(
     include_deleted: bool = True,
     deleted_lines: list[str] | None = None,
     subdir: str = "ASCII",
+    doc_names: tuple[str, ...] = ("ASC_NTS.pdf", "README.pdf"),
 ) -> Path:
     """Write a synthetic quarterly archive shaped like the real thing.
 
@@ -103,15 +104,15 @@ def build_quarter_zip(
     suffix = quarter.table_file_stem_suffix
     with zipfile.ZipFile(destination, "w") as archive:
         if include_docs:
-            archive.writestr("ASC_NTS.pdf", b"placeholder documentation")
-            archive.writestr("README.pdf", b"placeholder readme")
+            for doc_name in doc_names:
+                archive.writestr(doc_name, b"placeholder documentation")
         if include_deleted:
             lines = deleted_lines if deleted_lines is not None else [" "]
             archive.writestr(
                 f"Deleted/{quarter.deleted_file_name}",
                 ("\n".join(lines) + "\n").encode("latin-1"),
             )
-        for table, spec in FAERS_2014Q3_TABLES.items():
+        for table, spec in tables_for_era(quarter.era).items():
             if table in omit_tables:
                 continue
             header = header_overrides.get(table, DELIMITER.join(spec.columns).upper())

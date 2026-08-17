@@ -6,8 +6,50 @@
 > "Build Plan B v3 — FAERS Signal Pipeline + Live Explorer Service (FINAL)".
 
 - Updated: 2026-08-16
-- Current phase: **7 — Docs & portfolio assets (plan delivered, awaiting
-  maintainer go)**. Phase 6 MERGED (PR #8) — DoD confirmed 2026-08-16. Merged and
+- Current phase: **8a — Historical era support: FAERS_2012Q4
+  (implemented + verified in sandbox; delivered for review)**. Phase 7
+  MERGED (PR #9) — DoD confirmed 2026-08-16. Maintainer chose TRUE FULL
+  HISTORY (2004->present): 8a = 2012Q4-era spec (this changeset), 8b =
+  legacy AERS era (ISR-keyed; identity adapter, per-era contracts,
+  aers_ascii URL candidates, STAT/SIZE members, no deleted lists), 8c =
+  ~90-quarter backfill run, 8d = AWS explorer. Worker-kill CI flake
+  root-caused twice; final fix: build_worker defaults to a 30 s
+  graceful drain window (SDK default is ZERO -> shutdown cancels
+  in-flight activities). If it flakes again: automatic retry isolated
+  to that one test.
+
+## Phase 8a state (2026-08-16, sandbox-complete, delivered for review)
+
+- Era samples inspected on maintainer machine (real archives):
+  faers_ascii_2013q1.zip — lowercase ascii/ dir, Readme.doc + FAQs.doc
+  + per-table PDFs + ASC_NT.pdf (no ASC_NTS), NO Deleted/ folder;
+  headers a STRICT SUBSET of current era after gndr_cod->sex alias
+  (DEMO 22/25 no auth_num/lit_ref/age_grp; DRUG 19/20 no prod_ai;
+  REAC 3/4 no drug_rec_act; others identical).
+  aers_ascii_2010q1.zip (legacy, for 8b): .TXT uppercase, ISR-keyed
+  (DEMO: ISR$CASE$I_F_COD$FOLL_SEQ$IMAGE$...$DEATH_DT$CONFID$...;
+  children keyed by ISR only, no caseid), extra STAT/SIZE members,
+  Asc_nts.doc.
+- Changeset: layout.py FAERS_2012Q4_TABLES (transcribed from observed
+  headers) + STAGING_SUPERSET_TABLES (staging DDL always from the
+  current-era superset so an era quarter loading FIRST on a fresh
+  schema cannot create narrow tables — CI-gated subset invariant);
+  contracts apply only to columns the era publishes (checks filtered by
+  expr.meta.root_names() vs frame columns); certify() era-keyed pandera
+  schemas; loader passes quarter.era to certify and validates the era
+  spec before DDL; test zip builder era-driven with doc_names param.
+- tests/test_era_2012q4.py (9 tests): era mapping, spec-vs-observed
+  headers, subset invariant, legacy still fails loudly, real-shaped era
+  zip verifies (deleted_list_missing non-fatal), era-mismatch header
+  rejected, era load with NULL era-absent columns and zero quarantine,
+  era-first-then-current-era load on fresh schema, MIXED-ERA MERGE
+  (caseid v1@2013q1 + v2@2026q2 -> current is 2026 copy).
+- 8a DoD remaining (maintainer machine): real 2013q1 fetch+verify+load
+  end-to-end (stage->merge->map->signals on mixed corpus; the real
+  archive is already at data/era-samples/faers_ascii_2013q1.zip);
+  remaining 6 era quarters fetch+verify clean; watch for older-vocab
+  quarantine (treat any finding like the DN case: investigate, cite,
+  admit). Merged and
   DoD-confirmed: Phase 0 bc8e449 (PR #2), Phase 1 e6bfe07 (PR #3),
   Phase 2 99bbab9 (PR #4), Phase 3 6e6f2b0 (PR #5), Phase 4 2784bc8
   (PR #6), Phase 5 a2921ee (PR #7). Dev quarters 2026q1+2026q2 fully

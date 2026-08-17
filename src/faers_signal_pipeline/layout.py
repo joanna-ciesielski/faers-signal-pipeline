@@ -57,11 +57,103 @@ def _spec(name: str, columns: tuple[str, ...], aliases: dict[str, str] | None = 
     return TableSpec(name=name, columns=columns, aliases=aliases or {})
 
 
+#: A UTF-8 byte-order mark as it appears after latin-1 decoding. The real
+#: 2012Q4 archive's DRUG file opens with a BOM (observed 2026-08-16); the
+#: pipeline reads FAERS bytes as latin-1, so the BOM surfaces as this
+#: three-character prefix on the first header column.
+_BOM_AS_LATIN1 = "\u00ef\u00bb\u00bf"
+
+
 def normalize_header(raw_header: str, spec: TableSpec) -> tuple[str, ...]:
-    """Lowercase, trim, and alias-map a raw $-delimited header row."""
+    """Lowercase, trim, alias-map, and BOM-strip a raw $-delimited header."""
+    raw_header = raw_header.lstrip("\ufeff")
+    if raw_header.startswith(_BOM_AS_LATIN1):
+        raw_header = raw_header[len(_BOM_AS_LATIN1) :]
     columns = [column.strip().lower() for column in raw_header.rstrip("\r\n").split(DELIMITER)]
     return tuple(spec.aliases.get(column, column) for column in columns)
 
+
+#: 2012 Q4 - 2014 Q2 era: case/version identity, pre-expansion columns.
+#: Transcribed from the real ``faers_ascii_2013q1.zip`` headers (inspected
+#: 2026-08-16) and that era's packaged per-table PDFs; every era quarter is
+#: still runtime-verified against this spec, so any within-era drift fails
+#: loudly rather than loading. Differences from the current era: DEMO lacks
+#: ``auth_num``/``lit_ref``/``age_grp`` and publishes ``gndr_cod`` (aliased
+#: to ``sex``); DRUG lacks ``prod_ai``; REAC lacks ``drug_rec_act``. Era
+#: archives use a lowercase ``ascii/`` dir, ship ``Readme.doc``-style docs,
+#: and have NO Deleted/ folder (loads take the recorded
+#: ``allow_missing_deleted`` override).
+FAERS_2012Q4_TABLES: dict[str, TableSpec] = {
+    "demo": _spec(
+        "demo",
+        (
+            "primaryid",
+            "caseid",
+            "caseversion",
+            "i_f_code",
+            "event_dt",
+            "mfr_dt",
+            "init_fda_dt",
+            "fda_dt",
+            "rept_cod",
+            "mfr_num",
+            "mfr_sndr",
+            "age",
+            "age_cod",
+            "sex",
+            "e_sub",
+            "wt",
+            "wt_cod",
+            "rept_dt",
+            "to_mfr",
+            "occp_cod",
+            "reporter_country",
+            "occr_country",
+        ),
+        aliases={"gndr_cod": "sex"},
+    ),
+    "drug": _spec(
+        "drug",
+        (
+            "primaryid",
+            "caseid",
+            "drug_seq",
+            "role_cod",
+            "drugname",
+            "val_vbm",
+            "route",
+            "dose_vbm",
+            "cum_dose_chr",
+            "cum_dose_unit",
+            "dechal",
+            "rechal",
+            "lot_num",
+            "exp_dt",
+            "nda_num",
+            "dose_amt",
+            "dose_unit",
+            "dose_form",
+            "dose_freq",
+        ),
+        # Within-era drift, observed on the real 2012Q4 archive
+        # (2026-08-16): DRUG published ``lot_nbr`` (renamed ``lot_num``
+        # by 2013Q1) and OUTC published ``outc_code`` (later
+        # ``outc_cod``). Aliased, same treatment as gndr_cod -> sex.
+        aliases={"lot_nbr": "lot_num"},
+    ),
+    "reac": _spec("reac", ("primaryid", "caseid", "pt")),
+    "outc": _spec(
+        "outc",
+        ("primaryid", "caseid", "outc_cod"),
+        aliases={"outc_code": "outc_cod"},
+    ),
+    "rpsr": _spec("rpsr", ("primaryid", "caseid", "rpsr_cod")),
+    "ther": _spec(
+        "ther",
+        ("primaryid", "caseid", "dsg_drug_seq", "start_dt", "end_dt", "dur", "dur_cod"),
+    ),
+    "indi": _spec("indi", ("primaryid", "caseid", "indi_drug_seq", "indi_pt")),
+}
 
 #: Current era (2014 Q3 onward). The seven tables and their exact column order.
 FAERS_2014Q3_TABLES: dict[str, TableSpec] = {
@@ -141,15 +233,25 @@ def era_for_quarter(year: int, quarter: int) -> Era:
     return Era.LEGACY_AERS
 
 
+#: Staging tables are shared across eras, so their DDL must come from the
+#: widest spec — the current era, whose columns are a strict superset of
+#: every specified era's (CI-gated in tests/test_era_2012q4.py). Era specs
+#: still drive verification and COPY column lists; era-absent columns are
+#: simply NULL for that era's rows.
+STAGING_SUPERSET_TABLES: dict[str, TableSpec] = FAERS_2014Q3_TABLES
+
+
 def tables_for_era(era: Era) -> dict[str, TableSpec]:
     """Expected table specs for an era.
 
-    Only the current era is fully specified; earlier eras raise so that a
-    backfill crossing an era boundary fails loudly until that era's spec is
-    added from its own quarter's ASC_NTS documentation (never guessed).
+    Unspecified eras raise so that a backfill crossing an era boundary
+    fails loudly until that era's spec is added from its own published
+    documentation and real archives (never guessed).
     """
     if era is Era.FAERS_2014Q3:
         return FAERS_2014Q3_TABLES
+    if era is Era.FAERS_2012Q4:
+        return FAERS_2012Q4_TABLES
     msg = (
         f"Layout spec for era {era.value!r} is not yet defined. "
         "Add it from that era's ASC_NTS documentation before loading."
