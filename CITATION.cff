@@ -1,0 +1,17 @@
+cff-version: 1.2.0
+message: If you use this software, please cite it as below.
+title: faers-signal-pipeline
+abstract: A reproducible pipeline for FDA Adverse Event Reporting System data spanning three data eras, computing PRR, ROR and chi-square disproportionality signals with byte-identical recomputation, data contracts with quarantine, RxNav drug normalization, and Temporal-orchestrated scheduling and backfill.
+type: software
+authors:
+  - family-names: Ciesielski
+    given-names: Joanna
+    orcid: https://orcid.org/0009-0001-2397-3660
+license: MIT
+repository-code: https://github.com/joanna-ciesielski/faers-signal-pipeline
+keywords:
+  - pharmacovigilance
+  - signal detection
+  - disproportionality analysis
+  - reproducibility
+  - data engineering
